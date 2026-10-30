@@ -35,7 +35,7 @@ the program's data by a port of the original's room engine. The app runs on svis
 opening screen, unpacked out of the program as its own routine does it;
 LOAD TAPE plays the four blocks of the tape and puts the loading screen
 down in the Alkatraz loader's own order; the worker ticks at `PASS_MS`
-a pass (40 ms at first, 30 ms tried from 2026-10-30).
+a pass (40 ms at first; 35 ms decided on 2026-10-30 as the pace closest to the original).
 The worker keeps the original's memory (`data/world.json`,
 `data/memory.json`) and runs `app/bobbyLogic.js` over it, one pass every
 `PASS_MS`. The keys are the original's KEYBOARD rows: the configured up,

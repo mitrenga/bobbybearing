@@ -30,7 +30,7 @@
  * roll ($7648, 2×/1×/0×), and the sound effects in the interrupt; a pass
  * takes 1.5-2.2 frames, 39.24 ms on average over a whole game. **The remake
  * does not simulate that** (operator's decision 2026-10-29, as in Booty):
- * a pass every `PASS_MS` ms, constant (40 ms at first, 30 ms tried from
+ * a pass every `PASS_MS` ms, constant (40 ms at first, 30 ms tried, 35 ms decided on
  * 2026-10-30 by the operator). The time on the panel goes down
  * once a pass in the original ($7404), so the length of a game comes out as
  * the original's average.
@@ -56,9 +56,9 @@ if (typeof importScripts === 'function') {
   importScripts('worldRenderer.js'+query, 'bobbyLogic.js'+query, 'beeperPlayer.js'+query);
 }
 
-// ★ 30 ms a pass: tried from 2026-10-30 (operator; 40 ms before, the original 39.24 ms on average)
+// ★ 35 ms a pass (operator 2026-10-30, the pace closest to the original by eye; 40 and 30 ms tried before, the original 39.24 ms on average)
 // ZADANI chap. 2, ScreenLayout.PASS_MS
-var PASS_MS = 30;
+var PASS_MS = 35;
 var MAX_CATCH_UP = 4;
 // ★ the ULA interrupt every 69 888 T = 19.968 ms: the sound handler runs
 // once a frame of the machine, so a pass of PASS_MS gets one or two of them
@@ -217,7 +217,7 @@ function tick() {
 
 /**
  * ★ The interrupts of one pass (M6): as many as frames of the machine went
- * by in PASS_MS (one or two at 30 ms), each the handler `$FB08` over the
+ * by in PASS_MS (one or two at 35 ms), each the handler `$FB08` over the
  * game's memory (BeeperPlayer.interrupt) — the requests `$F061`/`$F062` the
  * pass wrote are taken up here, as the machine takes them at the next
  * interrupt (a request overwritten before that is lost, as there). A

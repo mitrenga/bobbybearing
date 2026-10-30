@@ -51,6 +51,6 @@ export const ScreenLayout = {
   // frames, 39.24 ms on average over a whole game (disasm_notes.md §4). The
   // remake runs it at a constant pace — operator's decision 2026-10-29
   // (ZADANI chap. 2), 40 ms for a start.
-  PASS_MS: 30
+  PASS_MS: 35
 
 }; // ScreenLayout

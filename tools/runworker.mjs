@@ -48,8 +48,8 @@ import zlib from 'node:zlib';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
-// ★ 30 ms a pass, tried from 2026-10-30 (ZADANI chap. 2, app/gameWorker.js PASS_MS)
-const TICK_MS = 30;
+// ★ 35 ms a pass, decided 2026-10-30 (ZADANI chap. 2, app/gameWorker.js PASS_MS)
+const TICK_MS = 35;
 const DATA = {
   world: JSON.parse(fs.readFileSync(path.join(ROOT, 'data/world.json'), 'utf8')),
   memory: JSON.parse(fs.readFileSync(path.join(ROOT, 'data/memory.json'), 'utf8')),
@@ -270,7 +270,8 @@ function main() {
   clocked.send({id: 'init', initData: Object.assign({headless: false}, DATA)});
   clocked.advance(1000);
   const ticks = live.length-1;
-  check(ticks === Math.round(1000/TICK_MS), `za vteřinu ${Math.round(1000/TICK_MS)} průchodů po ${TICK_MS} ms (je ${ticks})`);
+  // a second is not a whole number of passes at every TICK_MS: the floor
+  check(Math.abs(ticks-1000/TICK_MS) < 1, `za vteřinu ${Math.floor(1000/TICK_MS)} průchodů po ${TICK_MS} ms (je ${ticks})`);
   clocked.advance(10000);
   const tenSeconds = live.length-1-ticks;
   check(Math.abs(tenSeconds-Math.round(10000/TICK_MS)) <= 1,

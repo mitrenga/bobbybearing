@@ -27,7 +27,7 @@ nečeká** — práce, zpoždění `$7648` podle počtu valících se koulí
 (2× / 1× / 0×) a zvukové efekty v obsluze přerušení. Průchod trvá 1,5–2,2
 snímku, v celé partii průměrně 39,24 ms. **Remake to nesimuluje**
 (rozhodnutí operátora 2026-10-29, jako Booty): průchod každých
-**`PASS_MS`** ms, konstantně (nejdřív 40 ms, od 2026-10-30 operátor zkouší 30 ms). Čas na panelu v originálu ubývá jednou
+**`PASS_MS`** ms, konstantně (nejdřív 40 ms; **35 ms rozhodnuté 2026-10-30** — operátorovi nejlépe srovnatelné s originálem, 30 ms zkoušeno). Čas na panelu v originálu ubývá jednou
 za průchod (`$7404`), takže délka hry vyjde jako průměr originálu.
 
 Worker tiká **rekurzivním `setTimeout` s akumulátorem** (R-046,
