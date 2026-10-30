@@ -1,0 +1,9 @@
+{
+    "standalone": [
+        "gameWorker.js",
+        "worldRenderer.js",
+        "bobbyLogic.js",
+        "beeperPlayer.js",
+        "svision/js/audio/worker/audioProcessor.js"
+    ]
+}

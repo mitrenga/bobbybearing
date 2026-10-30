@@ -1,0 +1,19 @@
+build/
+tools/vendor/
+node_modules/
+config/config.php
+__pycache__/
+*.pyc
+js
+sources/
+CHAT.md
+CLAUDE.md
+.claude/
+MILNIKY.md
+ZADANI.md
+*.log
+
+# obrazy originálu (R-059)
+*.z80
+*.rzx
+*.tzx
