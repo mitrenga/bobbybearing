@@ -163,8 +163,10 @@ export class ScreenComposer {
     this.xorBall(state);
     var extra = 0;
     var c = (state.vel+2) & 0xFF;
-    var a = (((c << 24) >> 24) >> 1) & 0xFF;      // SRA A: signed halving
-    a = (a+state.pos) & 0xFF;                      // ADD A,B
+    // SRA A: signed halving; ADD A,B without the wrap to 8 bits, so that the
+    // remake's start above the screen (pos < 0, menuModel.js) falls in —
+    // the original's rows 4-$24 never wrap, so for them it is the same
+    var a = (((c << 24) >> 24) >> 1)+state.pos;
     if (a < 0x24) {
       state.pos = a;
       state.vel = c;
@@ -184,10 +186,13 @@ export class ScreenComposer {
     return extra;
   } // bounce
 
-  /** ★ `$D941`: the frame of the ball XORed into the buffer at its row. */
+  /**
+   * ★ `$D941`: the frame of the ball XORed into the buffer at its row. The
+   * lines above the buffer (the remake's start, pos < 0) are left out.
+   */
   xorBall(state) {
     var sprite = state.sprites[state.sprite];
-    for (var row = 0; row < 25; row++) {
+    for (var row = Math.max(0, -state.pos); row < 25; row++) {
       for (var i = 0; i < 4; i++) {
         state.buffer[(state.pos+row)*4+i] ^= sprite[row*4+i];
       }
@@ -204,6 +209,36 @@ export class ScreenComposer {
   } // composeTitle
 
   /**
+   * The Edge logo at the top right of the opening screen's BOBBY BEARING
+   * (ScreenLayout.EDGE_LOGO), for the remake's menu. ★ The glyphs are the
+   * original's: the text of the screen of controls (`$72E6`, `$7375`) draws
+   * the logo with the game's font (`$F70C`) as two rows of seven characters,
+   * `(+-/;=Z` over `*,.:<>F`, THE in the first column. ? The place and the
+   * colours are the remake's (operator 2026-10-30): the top edge on the top
+   * of the lettering (row 3), the right edge on the end of BEARING
+   * (column 29), THE in bright red, EDGE in bright white, on black.
+   * @param {ZXVideoRAM} videoRAM - The video memory to draw into.
+   */
+  composeEdgeLogo(videoRAM) {
+    var font = this.scene.font;
+    if (!font || !font.bytes) {
+      return videoRAM;
+    }
+    var glyphs = ScreenComposer.fromBase64(font.bytes);
+    var at = ScreenLayout.EDGE_LOGO;
+    ScreenComposer.EDGE_LOGO_TEXT.forEach((text, row) => {
+      for (var i = 0; i < text.length; i++) {
+        var glyph = (text.charCodeAt(i)-font.first)*8;
+        for (var line = 0; line < 8; line++) {
+          videoRAM.pokeOffset(ZXVideoRAM.lineOffset((at.row+row)*8+line)+at.col+i, glyphs[glyph+line]);
+        }
+        videoRAM.pokeOffset(ZXVideoRAM.ATTRIBUTES_OFFSET+(at.row+row)*ZXVideoRAM.COLS+at.col+i, i === 0 ? at.attrThe : at.attrEdge);
+      }
+    });
+    return videoRAM;
+  } // composeEdgeLogo
+
+  /**
    * The whole game screen: the 6912 bytes of the game's video memory the
    * worker sent last; before the first one, a black screen.
    * @param {ZXVideoRAM} videoRAM - The video memory to draw into.
@@ -218,9 +253,9 @@ export class ScreenComposer {
   } // composeInto
 
   /**
-   * The screen the menu sits on: the original's opening screen with a window
-   * over its lower part (ScreenLayout.MENU_WINDOW). The texts are entities
-   * over it (menuModel.js).
+   * The original's opening screen with a window over its lower part
+   * (ScreenLayout.MENU_WINDOW), where the remake's menu used to sit; only
+   * tools/matchscreen.mjs checks it now.
    * @param {ZXVideoRAM} videoRAM - The video memory to draw into.
    */
   composeMenu(videoRAM) {
@@ -239,6 +274,9 @@ export class ScreenComposer {
   } // clearScreen
 
 } // ScreenComposer
+
+/** ★ The Edge logo in the game's font: the two rows of `$7375` after `a` (`$7311`). */
+ScreenComposer.EDGE_LOGO_TEXT = ['(+-/;=Z', '*,.:<>F'];
 
 /** ★ T-states of a turn of the menu loop without and with the ball (tools/tracemenu.py). */
 ScreenComposer.MENU_LOOP_T = [68280, 90586];

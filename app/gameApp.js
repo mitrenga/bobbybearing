@@ -11,7 +11,6 @@ const { HallOfFameModel } = await import('./hallOfFameModel.js?ver='+window.srcV
 const { GameModel } = await import('./gameModel.js?ver='+window.srcVersion);
 const { GameOverModel } = await import('./gameOverModel.js?ver='+window.srcVersion);
 const { GameScore } = await import('./gameScore.js?ver='+window.srcVersion);
-const { ScreenComposer } = await import('./screenComposer.js?ver='+window.srcVersion);
 const { TapeLoadingModel } = await import('./tapeLoadingModel.js?ver='+window.srcVersion);
 const { ZXErrorEntity } = await import('./svision/js/platform/canvas2D/zx/zxErrorEntity.js?ver='+window.srcVersion);
 const { Tool } = await import('./svision/js/tool.js?ver='+window.srcVersion);
@@ -80,14 +79,15 @@ export class GameApp extends AbstractApp {
       zxFonts8x8Title: new ZXFonts8x8(this, true),
       fonts5x5: new Fonts5x5(this),
       fonts3x3: new Fonts3x3(this),
-      // ★ the game's own font ($F70C, 8 bytes a character by its ASCII code,
-      // $7315) for the menu (operator 2026-10-30): ' ', '0'-'9' and 'A'-'Z'
-      // out of the program (data/screen.json `font`, tools/mkscreen.py),
-      // monospaced as the game draws it; the glyphs the game has not keep
-      // the ROM's — set once the data is here (gameFont())
-      zxFonts8x8Game: new ZXFonts8x8(this, false)
+      // the font of the menu's item names (operator 2026-10-31): a font of
+      // zx-fonts closest to the game's own ($F70C — `0`-`9` and `A`-`Z` 1-4
+      // pixels a glyph apart, its F and Z are not letters) with lower case
+      // and punctuation, set below
+      zxFonts8x8Menu: new ZXFonts8x8(this, false)
     };
-    this.gameFontSet = false;
+    // ../zx-fonts/ch8/Crown of Ramhotep, The - Intro (1987)(Tartan
+    // Software)#64000.ch8, the same file as Double Agent - Intro
+    this.fonts.zxFonts8x8Menu.setFontsData('00000000000000000018181818001800003636000000000000367F36367F3600000C3F3C3F0F3F0C0073760C1837670000183C183F663F00000C18000000000000060C0C0C0C0600003018181818300000001E0C3F0C1E0000000C0C3F0C0C0000000000000C0C18000000003F00000000000000001C1C00000003060C183000003E676F7B733E00001C3C0C0C0C3F00003E63033E607F00003E630E03633E00000C1C3C6C7F0C00007F607E03633E00003E607E63633E00007F03060C181800003E633E63633E00003E63633F033E00000000180000180000001800001818300000060C180C06000000003F003F00000000180C060C1800003E63060C000C00003E6F7F7F603E00003E63637F636300007E637E63637E00003E636060633E00007C666363667C00007F607E60607F00007F607E60606000003E63606F633E000063637F63636300003F0C0C0C0C3F000003030363633E0000666C786C6663000060606060607F000063777F636363000063737B6F676300003E636363633E00007E63637E606000003E63637B6F3E00007E63637E666300003E603E03633E0000FF1818181818000063636363633E000063636363361C0000636363637F36000063361C1C36630000C3663C18181800007F060C18307F00000F0C0C0C0C0F0000006030180C0600007818181818780000183C7E1818180000000000000000FF001E337C30307F0000003C063E663E000030303E33333E0000001E3030301E000006063E66663E0000003C667C603E00000E181C1818180000003E66663E063C0060607C666666000018003818183C00000600060606361C00303C38383C36000018181818180E0000007EFFDBDBDB0000007C666666660000003C6666663C0000007C66667C606000003E66663E060700001E303030300000003C603C067C0000183C1818180E000000666666663C00000066663C3C18000000DBDBDBFF7E000000663C183C660000006666663E063C00007E0C18307E00000F0C380C0C0F00000C0C0C0C0C0C000078180E18187800001E3C00000000003E63DDF1F1DD633E');
     // the title font (GameInfoEntity.gameTitle) the sibling remakes share:
     // the font of Cimmerjan (1993, Sindicato del Software),
     // svision/fonts/cimmerjan.ch8.hex.txt
@@ -301,16 +301,7 @@ export class GameApp extends AbstractApp {
       }
     }
     var needResizeApp = false;
-    var selectionItem = 0;
     if (this.model) {
-      // where to put the menu cursor on the way back (menuModel.menuItems)
-      if (this.model.id == 'TapeLoadingModel') {
-        selectionItem = 5;
-      } else if (this.model.id == 'AboutModel') {
-        selectionItem = 6;
-      } else if (this.model.id == 'HallOfFameModel') {
-        selectionItem = 2;
-      }
       this.model.shutdown();
       needResizeApp = true;
     }
@@ -319,7 +310,7 @@ export class GameApp extends AbstractApp {
         this.model = new ZXResetModel(this);
         break;
       case 'MenuModel':
-        this.model = new MenuModel(this, selectionItem);
+        this.model = new MenuModel(this);
         break;
       case 'AboutModel':
         this.model = new AboutModel(this);
@@ -345,38 +336,6 @@ export class GameApp extends AbstractApp {
       this.resizeApp();
     }
   } // setModel
-
-  /**
-   * The game's own font with its glyphs put in from the data, the first time
-   * the data is here; the ROM font until then.
-   * @returns {ZXFonts8x8}
-   */
-  gameFont() {
-    var font = this.fonts.zxFonts8x8Game;
-    if (this.gameFontSet) {
-      return font;
-    }
-    var scene = Tool.loadDataFile('screen');
-    if (!scene || !scene.font || !scene.font.bytes) {
-      return font;
-    }
-    var bytes = ScreenComposer.fromBase64(scene.font.bytes);
-    var hex = '';
-    for (var i = 0; i < bytes.length; i++) {
-      hex += bytes[i].toString(16).padStart(2, '0');
-    }
-    var data = font.fontsData;
-    for (var code = scene.font.first; code < scene.font.end; code++) {
-      var glyph = hex.substring((code-scene.font.first)*16, (code-scene.font.first)*16+16);
-      if (code === 0x20 || (code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5A)) {
-        var at = font.fontsChars.indexOf(String.fromCharCode(code))*16;
-        data = data.substring(0, at)+glyph+data.substring(at+16);
-      }
-    }
-    font.setFontsData(data);
-    this.gameFontSet = true;
-    return font;
-  } // gameFont
 
   /**
    * How many players the game runs with. ★ The original offers one, so this
@@ -416,18 +375,19 @@ export class GameApp extends AbstractApp {
   setGlobalData(data) {
     this.applyGlobalData(data.data.global);
 
+    var files = {};
     Object.keys(data.data).forEach((key) => {
       if (key == 'hiScore') {
         // the server's hall of fame wins over the game's preset one, but only
         // when somebody has actually beaten it
         this.hiScore = Math.max(this.hiScore || 0, data.data[key] || 0);
       } else if (key != 'global') {
-        this.saveDataToStorage(key, data.data[key]);
+        files[key] = data.data[key];
       }
     });
-    // save global last: its presence in storage marks the whole appData save
-    // as complete, which the offline fallback relies on
-    this.saveDataToStorage('global', data.data.global || {});
+    // global goes last; a full localStorage is cleared and tried once more
+    // (R-062)
+    this.saveAppDataToStorage(files, data.data.global || {});
   } // setGlobalData
 
   // Load the application data: from the server when online (which also refreshes

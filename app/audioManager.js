@@ -48,6 +48,10 @@ export class AudioManager extends AbstractAudioManager {
     super(app);
     this.id = 'AudioManager';
     this.volume = {};
+    // the game's effects the worker rendered for the model (setSample)
+    this.samples = {};
+    // data/tape.json from the tape loading (tapeLoadingModel.js)
+    this.tapeData = null;
     this.volume.sounds = Math.min(10, Math.max(0, Math.round(Number(Tool.readCookie('audioBusSoundsLevel', 5)))));
   } // constructor
 
@@ -57,7 +61,10 @@ export class AudioManager extends AbstractAudioManager {
    * @returns {Object|null} The parsed content, or null.
    */
   loadDataFile(key) {
-    return Tool.loadDataFile(key);
+    // through the model: a file its loadDataFiles() had to get from the
+    // server is there, not in localStorage (R-062)
+    var model = this.app.model;
+    return model && model.loadDataFile ? model.loadDataFile(key) : Tool.loadDataFile(key);
   } // loadDataFile
 
   /**
@@ -87,7 +94,9 @@ export class AudioManager extends AbstractAudioManager {
    * @returns {Object|boolean} svision pulse data, or false with no data file.
    */
   tapeBlockSound(sampleRate, level, number) {
-    var tape = this.loadDataFile('tape');
+    // the tape loading hands its data/tape.json over (it may have come from
+    // the server rather than from localStorage)
+    var tape = this.tapeData || this.loadDataFile('tape');
     if (!tape || !tape.blocks || !tape.blocks[number-1]) {
       return false;
     }
@@ -157,6 +166,12 @@ export class AudioManager extends AbstractAudioManager {
     switch (sound) {
       case 'keyboardSound': return ZXMachineSounds.keyClick(sampleRate, level);
     }
+    // ★ an effect of the game as a sample (the menu's SOUNDS): rendered
+    // anew at the slider's level every time, not cached
+    if (sound in this.samples) {
+      var sample = this.samples[sound];
+      return AudioManager.interruptSound(sample.outs, sampleRate, level, sample.length);
+    }
     // ★ the game's sound: one request rendered whole by the worker
     // (gameWorker.js renderEffect), its edges in `options.outs`; kept by bus
     // and value, so the next request of the same value is a lookup (the
@@ -171,6 +186,16 @@ export class AudioManager extends AbstractAudioManager {
     return false;
   } // audioData
 
+
+  /**
+   * Keeps an effect the worker rendered (its 'effect' message) to be played
+   * by name, at whatever level the slider has then (audioData).
+   * @param {string} name - The sound's name.
+   * @param {Object} effect - {outs, length} as the worker sends them.
+   */
+  setSample(name, effect) {
+    this.samples[name] = {outs: effect.outs, length: effect.length};
+  } // setSample
 
   volumeLevel(volume) {
     var levels = [0, 0.005, 0.01, 0.02, 0.04, 0.07, 0.1, 0.14, 0.18, 0.23, 0.29];

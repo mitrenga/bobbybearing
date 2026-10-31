@@ -30,17 +30,39 @@ export const ScreenLayout = {
   // what is behind everything until the composer has drawn: black
   ATTR_SCREEN: 0x00,
 
-  // The remake's menu sits in a window over the lower part of the original's
-  // opening screen, where the original has its control selector, so the logo
-  // stays in sight. ★ The colours are the opening screen's own: bright white
-  // ($47) on black for the lines, the
-  // cyan of the selector box ($45) for the bar (menuModel.js). ? The window's
+  // What the menu shows of the opening screen: rows 1-12, the logo with the
+  // ball in the „O“, one row higher than in the original (from the top of
+  // the screen); the control selector under it stays out (operator
+  // 2026-10-30). From column 2: the logo two cells to the left of the
+  // original's place, the right two columns of the menu empty (operator
+  // 2026-10-31). ★ The ball starts on line 4 (row 0): its top four lines
+  // are cut off for the first two bounces.
+  MENU_TITLE: {col: 2, row: 1, cols: 30, rows: 12},
+  // What the menu shows of the worker's screen of the menu room (the
+  // original's screen after a game, $71BB, room $1E with six discs —
+  // BobbyLogic.MENU_PATCH): rows 5-16 — the tiles, the discs and the
+  // ball at rest from row 5 down (8 px higher than rows 4-15, operator
+  // 2026-10-30) — at MENU_ROOM_ROW under the logo. Row 0 (the picture of
+  // the choice, $4042) stays out; the texts ($72E6, from line $80 = row
+  // 16) are not drawn at all (MENU_PATCH).
+  MENU_ROOM: {col: 0, row: 5, cols: 32, rows: 12},
+  MENU_ROOM_ROW: 12,
+
+  // The Edge logo (ScreenComposer.composeEdgeLogo): seven cells by two,
+  // drawn here at the top right of the lettering — ★ BOBBY BEARING starts
+  // on row 3 and BEARING ends on column 29 (pixel 239), BOBBY on column 21.
+  // The menu shows these cells as an entity of their own under the
+  // lettering at the left edge (operator 2026-10-31), not on the title. ? Colours the remake's
+  // (operator 2026-10-30): THE bright red ($42), EDGE bright white ($47)
+  EDGE_LOGO: {col: 23, row: 3, attrThe: 0x42, attrEdge: 0x47},
+
+  // The window over the lower part of the original's opening screen, where
+  // the original has its control selector (ScreenComposer.composeMenu,
+  // checked by tools/matchscreen.mjs); the menu no longer uses it. ★ Bright
+  // white ($47) on black, the opening screen's own colours. ? The window's
   // size and place are the remake's.
   MENU_WINDOW: {col: 4, row: 13, cols: 24, rows: 11},
-  MENU_ITEMS: {col: 6, row: 15, pitch: 1},
-  MENU_VERSION_ROW: 23,
   ATTR_WINDOW: 0x47,
-  ATTR_LINE: 0x47,
 
   // 50.08 Hz — 69888 T states per frame on the 3.5 MHz Z80 of the 48K
   // machine (★ 48K, sources/docs/hw_notes.md): the rate of the ULA

@@ -20,10 +20,12 @@ export class GameAreaEntity extends ZXVideoRAMEntity {
    * @param {number} x - X position relative to the parent.
    * @param {number} y - Y position relative to the parent.
    * @param {ScreenComposer} render - The shared renderer.
+   * @param {Object} [area] - Only these character cells of the screen
+   *        ({col, row, cols, rows}); the whole screen by default.
    */
-  constructor(parentEntity, x, y, render) {
+  constructor(parentEntity, x, y, render, area) {
     super(parentEntity, x, y,
-          {col: 0, row: 0, cols: ScreenLayout.COLS, rows: ScreenLayout.ROWS});
+          area || {col: 0, row: 0, cols: ScreenLayout.COLS, rows: ScreenLayout.ROWS});
     this.id = 'GameAreaEntity';
 
     this.render = render;
@@ -32,31 +34,36 @@ export class GameAreaEntity extends ZXVideoRAMEntity {
 
   /**
    * The screen the menu, the hall of fame and the about page sit on: ★ the
-   * original's opening screen, and for the menu a window over its lower part
-   * in its own colours (ScreenComposer.composeMenu).
+   * original's opening screen (ScreenComposer.clearScreen).
    * It is built by the same composer out of the same data.
    * @param {AbstractModel} model - The model that owns the desktop.
-   * @param {boolean} [withWindow] - The menu's window over the opening screen.
+   * @param {Object} [area] - Only these character cells of the screen
+   *        ({col, row, cols, rows}), shown from the top left of the desktop;
+   *        the whole screen by default.
+   * @param {Object} [scene] - data/screen.json when the caller has it
+   *        (AbstractModel.loadDataFiles); read from localStorage otherwise.
    * @returns {ZXVideoRAMEntity|null} The screen, added to the desktop.
    */
-  static panelScreen(model, withWindow) {
-    var scene = model.loadDataFile('screen');
+  static panelScreen(model, area, scene) {
+    if (scene === undefined) {
+      scene = model.loadDataFile('screen');
+    }
     if (!scene) {
       return null;
     }
     try {
       var render = new ScreenComposer(scene);
-      var screen = new ZXVideoRAMEntity(model.desktopEntity, 0, 0);
-      if (withWindow) {
-        render.composeMenu(screen.videoRAM);
-      } else {
-        render.clearScreen(screen.videoRAM);
-      }
+      var screen = new ZXVideoRAMEntity(model.desktopEntity, 0, 0, area);
+      render.clearScreen(screen.videoRAM);
       screen.invalidate();
       // the composer stays with the screen: the menu turns the original's
       // loop over it (ScreenComposer.menuLoop)
       screen.render = render;
       model.desktopEntity.addEntity(screen);
+      // under everything else on the desktop, also when the data came from
+      // the server after the model had built the rest
+      var entities = model.desktopEntity.entities;
+      entities.unshift(entities.pop());
       return screen;
     } catch (error) {
       console.error(error.message);

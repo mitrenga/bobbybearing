@@ -37,11 +37,12 @@ Worker tiká **rekurzivním `setTimeout` s akumulátorem** (R-046,
 
 | zpráva | pole | význam |
 |---|---|---|
-| `init` | `initData: {headless, world, memory, seed, hiScore}` | start nové hry: ★ paměť menu z dat a `BobbyLogic.newGame` (`$D969` → `$7D87`, M5) — pořadí bratrů losuje generátor originálu nad `$EE7F`/`$EE80`; `seed` (číslo, 16 bitů) se do něj zapíše před losováním, bez něj losuje z dat (vždy stejně). `world` = obsah `data/world.json`, `memory` = obsah `data/memory.json` (bez nich odpoví `error`). `headless: true` tiká jen na vyžádání zprávou `tick` (pro `tools/runworker.mjs`). |
+| `init` | `initData: {headless, world, memory, seed, hiScore}` | start nové hry: ★ paměť menu z dat a `BobbyLogic.newGame` (`$D969` → `$7D87`, M5) — pořadí bratrů losuje generátor originálu nad `$EE7F`/`$EE80`; `seed` (číslo, 16 bitů) se do něj zapíše před losováním, bez něj losuje z dat (vždy stejně). `world` = obsah `data/world.json`, `memory` = obsah `data/memory.json` (bez nich odpoví `error`). `headless: true` tiká jen na vyžádání zprávou `tick` (pro `tools/runworker.mjs`). `startSound: true` = start ze šipky menu (★ `$7481`): požadavek zvuku 6 a první přerušení hned, efekt jde s prvním snímkem. `mode: 'menu'` = místo hry ★ obrazovka po hře `$71BB` v místnosti `$1E` se šesti disky (`BobbyLogic.MENU_PATCH`), tik = průchod `$720C`, klávesy CURSOR, bez zvuku; snímek nese `menu: {cell, choice, disc, taken, start}` — `disc` = disk pod koulí 0–5 (★ `$72DF` − 2) nebo −1, `taken` = směr vlevo/vpravo na disku ho v tomhle průchodu vzal (★ `$724A`). |
 | `controls` | `left`, `right`, `up`, `down`, `cheat` (boolean) | úplný stav ovládání; posílá se při každé změně a **celý**; neznámé klíče se zahodí. |
 | `pause` | – | zastaví hodiny. |
 | `continue` | – | rozjede je; bez předchozí `pause` neudělá nic (dvoje hodiny naráz by tikaly dvakrát rychleji). |
 | `tick` | – | jeden průchod v režimu `headless`. |
+| `renderEffect` | `value` | jeden efekt vyrenderovaný celý (`renderEffect`) nad tabulkami efektů v paměti workeru; odpověď `effect`. Menu si tak bere vzorek pro SOUNDS (efekt 5, přechod mezi místnostmi). |
 | `reset` | – | zahodí stav a zastaví hodiny. |
 
 ★ **Ovládání originálu jsou čtyři směry** — bity Kempstonu vpravo, nahoru,
@@ -72,7 +73,8 @@ losováním; model dává první hře po načtení stránky `Date.now() & 0xFFFF
 
 | zpráva | pole | význam |
 |---|---|---|
-| `frame` | `frame`, `pass`, `outcome`, `controls`, `sounds[]`, `score`, `generator`, `screen` | jeden průchod. Posílá se po každém průchodu a jako odpověď na `init`. ★ `outcome` je `pass`, nebo jak hra skončila (M5): `won` (všichni doma, `$7CE5`), `lost` (doma s jedním ztraceným), `timeout` (konec času `$7494`), `quit` (`1`+`4` v pauze originálu); poslední snímek nese koncovou obrazovku `$7D06` a hodiny stojí — model ji nechá ≈ 7 s jako originál (`$7D3D`) a jde do menu, které stojí za obrazovkou ovládání originálu (`$71BB`). |
+| `frame` | `frame`, `pass`, `outcome`, `controls`, `sounds[]`, `score`, `generator`, `screen` | jeden průchod. Posílá se po každém průchodu a jako odpověď na `init`. ★ Srážka času (Q CHEAT, pád: 1 600 tiků ≈ 1,2 s) předchází snímku průchodu snímky se stejným `pass`, po jednom za `PASS_MS`, kde ubývají jen číslice času (`countdownStep`). ★ `outcome` je `pass`, nebo jak hra skončila (M5): `won` (všichni doma, `$7CE5`), `lost` (doma s jedním ztraceným), `timeout` (konec času `$7494`), `quit` (`1`+`4` v pauze originálu); poslední snímek nese koncovou obrazovku `$7D06` a hodiny stojí — model ji nechá ≈ 7 s jako originál (`$7D3D`) a jde do menu, které stojí za obrazovkou ovládání originálu (`$71BB`). |
+| `effect` | `value`, `outs`, `length` | odpověď na `renderEffect`: hrany `[T, bit]` a délka v T jako u `sounds[]`. |
 | `stopped` | `pass`, `message` | ? hra došla na místo originálu, které ještě není převedené (`unported $8F6E: …`); hodiny stojí, poslední obrazovka zůstává. |
 | `error` | `message` | chybějící data. |
 

@@ -88,7 +88,27 @@ export class GameModel extends AbstractModel {
       this.sendEvent(0, {id: 'openAudioBus', bus: bus, options: {muted: this.app.muted.sounds}});
     });
 
-    if (!this.initScreen()) {
+    // the screen and the worker need their data files: at once from
+    // localStorage, or from the server when they are missing there (R-062)
+    this.loadDataFiles(['screen', 'world', 'memory'], (files, error) => this.initData(files, error));
+  } // init
+
+  /**
+   * The part of init() that needs the data files: the screen and the start of
+   * the worker. Runs inside init() when the files are in localStorage, later
+   * when they had to come from the server.
+   * @param {Object|null} files - screen, world and memory, or null.
+   * @param {Error} [error] - Why the files are missing.
+   */
+  initData(files, error) {
+    if (this.app.model !== this) {
+      return;
+    }
+    if (!files) {
+      this.app.showErrorMessage(error ? error.message : 'Game data could not be loaded.', 'restart');
+      files = {};
+    }
+    if (!this.initScreen(files.screen)) {
       this.showDataMissing();
       return;
     }
@@ -114,19 +134,22 @@ export class GameModel extends AbstractModel {
         hiScore: this.app.hiScore,
         // ★ the rooms out of the program's data (tools/dumpworld.py,
         // sources/docs/world.md)
-        world: this.loadDataFile('world'),
+        world: files.world,
         // ★ the rest of the original's memory at the start of a game
         // (tools/mkmemory.mjs): the port of the main loop runs over it
-        memory: this.loadDataFile('memory'),
+        memory: files.memory,
         // ★ the one randomness of the original is the state of the
         // generator of the brothers' order ($EE7F/$EE80), what the last
         // game left in memory: the first game gets the clock (outside the
         // simulation), every next one the state the last game ended with
         // (operator 2026-10-30, WORKER-PROTOCOL.md)
-        seed: typeof this.app.generatorSeed === 'number' ? this.app.generatorSeed : (Date.now() & 0xFFFF)
+        seed: typeof this.app.generatorSeed === 'number' ? this.app.generatorSeed : (Date.now() & 0xFFFF),
+        // ★ the menu is the original's screen after a game and the game
+        // starts from its arrow ($7481), which asks for sound 6
+        startSound: true
       }
     });
-  } // init
+  } // initData
 
   shutdown() {
     super.shutdown();
@@ -165,11 +188,12 @@ export class GameModel extends AbstractModel {
 
   /**
    * Builds the renderer and adds the screen.
+   * @param {Object} scene - data/screen.json.
    * @returns {boolean} True when the screen was created.
    */
-  initScreen() {
+  initScreen(scene) {
     try {
-      this.render = new ScreenComposer(this.loadDataFile('screen'));
+      this.render = new ScreenComposer(scene);
     } catch (error) {
       console.error(error.message);
       return false;

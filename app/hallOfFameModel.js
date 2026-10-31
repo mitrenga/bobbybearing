@@ -65,10 +65,17 @@ export class HallOfFameModel extends AbstractModel {
     this.desktopEntity.bkColor = ZXColor.black;
 
     // the original's own menu heading above the table
-    this.screenEntity = GameAreaEntity.panelScreen(this);
-    if (!this.screenEntity) {
-      this.desktopEntity.addEntity(new TextEntity(this.desktopEntity, this.app.fonts.zxFonts8x8, 0, 1*8, this.desktopWidth, 8, 'BOBBY BEARING', ZXColor.brightWhite, false, {align: 'center'}));
-    }
+    // from localStorage at once, or from the server when it is missing there
+    // (R-062)
+    this.loadDataFiles(['screen'], (files) => {
+      if (this.app.model !== this) {
+        return;
+      }
+      this.screenEntity = GameAreaEntity.panelScreen(this, undefined, files ? files.screen : null);
+      if (!this.screenEntity) {
+        this.desktopEntity.addEntity(new TextEntity(this.desktopEntity, this.app.fonts.zxFonts8x8, 0, 1*8, this.desktopWidth, 8, 'BOBBY BEARING', ZXColor.brightWhite, false, {align: 'center'}));
+      }
+    });
 
     // the table, over the middle of the frame, all on the black of the
     // tableEntity itself: the heading, the CLOSE button and the six places

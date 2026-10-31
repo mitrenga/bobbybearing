@@ -27,6 +27,11 @@
  *   na startu nuly (startovní místnost se nepočítá), po přechodu do `$02`
  *   `rooms` 1 a `time` = tiky hodin originálu do té chvíle (průchody + 1 za
  *   místnost), dál se bez pokroku nemění; návrat do `$00` nic nepřidá
+ * - ★ **menu** (`mode: 'menu'`): obrazovka po hře originálu (`$71BB`)
+ *   v místnosti `$1E` se šesti disky — snímek nese `menu` `{cell, choice,
+ *   start}`, koule se valí klávesami CURSOR, dolů přejede všech šest disků
+ *   `$42`–`$47`, volbu vezme až směr napříč pruhem (vlevo), vpravo dojede
+ *   na šipku `$10` = start; menu je němé
  * - ovládání: stav dorazí celý, ★ čtyři směry originálu a `Q` CHEAT
  *   (`left`, `right`, `up`, `down`, `cheat`), neznámá klávesa (fire originál
  *   nemá) se zahodí
@@ -257,6 +262,64 @@ function main() {
   const order = (r) => Array.from(vm.runInContext('state.logic.mem', r.worker.context).subarray(0xFEF0, 0xFEF5)).join();
   check(order(runA) !== order(runC) && order(runA) !== order(runD), `jiný seed, jiné pořadí bratrů (${order(runA)} / ${order(runC)} / ${order(runD)})`);
   check(new Set(order(runA).split(',')).size === 5, 'pět různých míst z osmi');
+
+  // --- ★ Q CHEAT: kouli vrátí na start a srazí 1600 tiků času ($7F73);
+  // originál po tu dobu stojí a číslice točí (≈ 1,2 s) — worker posílá
+  // snímky srážky po TICK_MS, pak snímek průchodu
+  const q = run({}, 10, false, {cheat: true});
+  q.worker.send({id: 'controls', left: false, right: false, up: false, down: false, cheat: false});
+  for (let step = 0; step < 60; step++) {
+    q.worker.send({id: 'tick'});
+  }
+  const qm = q.messages;
+  const digits = (m) => { const b = Buffer.from(m.screen, 'base64'); const out = [];
+    for (let line = 0; line < 8; line++) { for (let e = 0; e < 4; e++) { out.push(b[0x1082+line*0x100+e]); } }
+    return out.join(); };
+  const rest = (m) => { const b = Buffer.from(m.screen, 'base64');
+    for (let line = 0; line < 8; line++) { b.fill(0, 0x1082+line*0x100, 0x1086+line*0x100); }
+    return b.toString('base64'); };
+  // snímky srážky: týž průchod jako předchozí snímek (pass se nemění)
+  const firstHeld = qm.findIndex((m, i) => i > 0 && m.pass === qm[i-1].pass);
+  const held = firstHeld > 0 ? qm.slice(firstHeld-1).filter((m) => m.pass === qm[firstHeld].pass) : [];
+  const expectedSteps = Math.floor(1600*2624/3500/TICK_MS);
+  check(held.length === expectedSteps+1,
+        `Q: srážka ${expectedSteps} snímků po ${TICK_MS} ms a snímek průchodu (je ${held.length})`);
+  const steps = held.slice(0, -1);
+  check(steps.length && steps.every((m) => rest(m) === rest(steps[0])),
+        'Q: během srážky se mění jen číslice času, koule stojí');
+  check(new Set(steps.map(digits)).size === steps.length, 'Q: číslice se každým snímkem srážky změní');
+  check(held.length && rest(held[held.length-1]) !== rest(steps[0]), 'Q: snímek průchodu ukáže kouli na startu místnosti');
+  check(qm[qm.length-1].pass > held[0].pass, 'Q: po srážce hra jede dál');
+
+  // --- menu: obrazovka po hře originálu ($71BB) v místnosti $1E se šesti
+  // disky (BobbyLogic.MENU_PATCH); koule se valí klávesami CURSOR
+  const menuDown = run({mode: 'menu'}, 80, false, {down: true});
+  const md = menuDown.messages;
+  check(md[0].id === 'frame' && md[0].screen && md[0].menu, 'menu: init odpoví snímkem s obrazovkou a stavem menu');
+  check(md.length === 81 && md.slice(1).every((m) => m.menu), 'menu: tik je jeden průchod $720C se stavem menu');
+  check(md[0].menu.cell === 0 && md[0].menu.choice === 0, 'menu: koule na startu v buňce 0, volba 0');
+  const cells = new Set(md.map((m) => m.menu.cell));
+  check([0x42, 0x43, 0x44, 0x45, 0x46, 0x47].every((c) => cells.has(c)),
+        `menu: dolů přes všech šest disků $42-$47 (${[...cells].map((c) => c.toString(16)).join(' ')})`);
+  check(md[md.length-1].menu.choice === 0, 'menu: jen najetí na disk volbu nezmění');
+  // ★ volbu vezme směr napříč pruhem na disku ($72A1: bit 0 nebo 3 $FDF6 —
+  // vpravo nebo vlevo)
+  menuDown.worker.send({id: 'controls', left: true, right: false, up: false, down: false});
+  for (let step = 0; step < 10; step++) {
+    menuDown.worker.send({id: 'tick'});
+  }
+  const taken = md[md.length-1].menu;
+  check(taken.cell === 0x47 && taken.choice === 5, `menu: vlevo na šestém disku = volba 5 (buňka $${taken.cell.toString(16)}, volba ${taken.choice})`);
+  check(md.every((m) => !m.sounds.length), 'menu je němé');
+  const menuStart = run({mode: 'menu'}, 40, false, {right: true});
+  check(menuStart.messages.some((m) => m.menu.start && m.menu.cell === 0x10), 'menu: vpravo na šipku $10 = start');
+
+  // ★ hra ze šipky menu ($7481): zvuk 6 hned s prvním snímkem
+  const fromArrow = run({startSound: true}, 0);
+  const arrowSounds = fromArrow.messages[0].sounds || [];
+  check(arrowSounds.some((s) => s.value === 6 && s.bus === 'game' && s.outs.length), 'start ze šipky: první snímek nese celý efekt 6 na sběrnici game');
+  const noSound = run({}, 0);
+  check(!(noSound.messages[0].sounds || []).length, 'start bez startSound je tichý');
 
   // --- reset v headless režimu zastaví tikání
   const before = messages.length;

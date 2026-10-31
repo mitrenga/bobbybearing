@@ -78,6 +78,9 @@ function reset() {
   accumulator = 0;
   state = {
     running: false, paused: false, headless: false,
+    // the remake's menu: the original's screen after a game ($71BB) in the
+    // room with six discs (BobbyLogic.MENU_PATCH) instead of a game
+    menu: false,
     // passes of the main loop since the game started
     pass: 0,
     hiScore: 0,
@@ -102,6 +105,8 @@ function reset() {
     effects: {},
     // the 6912 bytes of the screen, base64
     screen: null,
+    // a deduction of the time being shown (countdownStep), or null
+    countdown: null,
     sounds: [],
     // the remake's score (M7, outside the original's memory): see score()
     score: {brothers: 0, rooms: 0, time: 0},
@@ -176,6 +181,16 @@ function frame(withScreen) {
     // the seed of the next game
     generator: state.logic ? state.logic.mem[0xEE7F] | (state.logic.mem[0xEE80] << 8) : 0
   };
+  if (state.menu) {
+    // ★ the menu: the cell under the ball ($FE2C) and the choice ($72D6,
+    // 0-5 = the discs, $10 under the ball = the arrow, START); the disc
+    // under the ball (`$72DF` = cell AND 7, 2-7 → 0-5, else -1) and whether
+    // a direction held on it took it in this pass ($724A, left or right)
+    var disc = state.logic.mem[0x72DF];
+    out.menu = {cell: state.logic.mem[0xFE2C], choice: state.logic.mem[0x72D6],
+                disc: disc >= 2 ? disc-2 : -1, taken: !!state.logic.choiceTaken,
+                start: state.outcome === 'start'};
+  }
   if (withScreen) {
     out.screen = state.screen;
   }
@@ -192,6 +207,15 @@ function tick() {
     return;
   }
   var outcome;
+  if (state.menu) {
+    menuTick();
+    return;
+  }
+  if (state.countdown) {
+    countdownStep();
+    return;
+  }
+  state.logic.timeLog = {screen: null, digits: []};
   try {
     outcome = state.logic.pass((port) => BobbyLogic.keyboardPort(port, state.controls));
   } catch (error) {
@@ -205,6 +229,46 @@ function tick() {
   interrupts();
   score();
   state.screen = toBase64(state.logic.screen());
+  var log = state.logic.timeLog;
+  state.logic.timeLog = null;
+  var steps = log.screen ? Math.floor(log.digits.length*BobbyLogic.TICK_T/3500/PASS_MS) : 0;
+  if (steps > 0) {
+    state.countdown = {log: log, steps: steps, step: 0, outcome: outcome};
+    countdownStep();
+    return;
+  }
+  passDone(outcome);
+} // tick
+
+/**
+ * ★ A deduction of the time shown as the original shows it (Q CHEAT, a
+ * fall: `$7F73`, B × 8 ticks): the original draws the digits after every
+ * tick, and the game stands for the ticks' T states (BobbyLogic.TICK_T,
+ * 1600 ticks ≈ 1.2 s), the ball still where the deduction found it. The
+ * pass is played whole at once (BobbyLogic.timeLog); then, a step every
+ * PASS_MS, the screen as the deduction found it with the digits of the
+ * tick it would be at, the interrupts going on (the sound); the pass's own
+ * frame comes last. The controls are not read meanwhile, as there.
+ */
+function countdownStep() {
+  var c = state.countdown;
+  c.step++;
+  if (c.step > c.steps) {
+    state.countdown = null;
+    passDone(c.outcome);
+    return;
+  }
+  var screen = c.log.screen.slice();
+  BobbyLogic.putTimeDigits(screen, c.log.digits[Math.floor(c.step*c.log.digits.length/(c.steps+1))-1]
+                                   || c.log.digits[0]);
+  interrupts();
+  var out = frame(false);
+  out.screen = toBase64(screen);
+  postMessage(out);
+} // countdownStep
+
+/** The frame of a pass out; a game that ended stops the clock. */
+function passDone(outcome) {
   if (outcome !== 'pass') {
     // ★ the game ended ($7D06: the end screen is on the screen; M5): the
     // last frame carries the outcome, the clock stops
@@ -213,7 +277,29 @@ function tick() {
     state.outcome = outcome;
   }
   postMessage(frame(true));
-} // tick
+} // passDone
+
+/**
+ * ★ One turn of the menu: the pass of the screen after a game
+ * (`BobbyLogic.afterGamePass`, `$720C`) with the controls on the keys of
+ * CURSOR, as the original reads them there (`$FEE7` = 2). The ball on the
+ * arrow is outcome 'start' — ? nothing is started yet (the next step of
+ * the menu), the ball rolls on. The menu is silent: no interrupts.
+ */
+function menuTick() {
+  try {
+    state.outcome = state.logic.afterGamePass((port) => BobbyLogic.keyboardPort(port, state.controls, BobbyLogic.CURSOR_KEYS));
+  } catch (error) {
+    state.stopped = error.message;
+    state.running = false;
+    stopClock();
+    postMessage({id: 'stopped', pass: state.pass, message: error.message});
+    return;
+  }
+  state.pass++;
+  state.screen = toBase64(state.logic.screen());
+  postMessage(frame(true));
+} // menuTick
 
 /**
  * ★ The interrupts of one pass (M6): as many as frames of the machine went
@@ -351,6 +437,20 @@ onmessage = function(event) {
       // new game ($D969 → $7D87) builds room $00 with the panel on the screen
       // itself (M5)
       state.logic = new BobbyLogic(BobbyLogic.composeMemory(initData.world, initData.memory));
+      if (initData.mode === 'menu') {
+        // ★ the remake's menu: room $1E with six discs and the original's
+        // screen after a game over it ($71BB), silent
+        state.menu = true;
+        Object.keys(BobbyLogic.MENU_PATCH).forEach((address) => {
+          state.logic.mem[+address] = BobbyLogic.MENU_PATCH[address];
+        });
+        state.logic.afterGame();
+        state.screen = toBase64(state.logic.screen());
+        state.running = true;
+        postMessage(frame(true));
+        schedule();
+        break;
+      }
       state.beeper = new BeeperPlayer(state.logic.mem);
       state.seed = typeof initData.seed === 'number' ? initData.seed : null;
       if (state.seed !== null) {
@@ -359,6 +459,15 @@ onmessage = function(event) {
         state.logic.mem[0xEE80] = (state.seed >> 8) & 0xFF;
       }
       state.logic.newGame();
+      if (initData.startSound) {
+        // ★ the game started from the screen after a game, the ball on the
+        // arrow ($7481): the request of sound 6 before $74CC → $7D87. The
+        // original's interrupt takes it while the room is being built, so
+        // here the first interrupt comes right away and the effect goes
+        // with the first frame
+        state.logic.soundRequest(0xF061, 6, 'game');
+        interrupts();
+      }
       state.screen = toBase64(state.logic.screen());
       state.running = true;
       postMessage(frame(true));
@@ -384,6 +493,15 @@ onmessage = function(event) {
         lastTime = false;
         accumulator = 0;
         schedule();
+      }
+      break;
+
+    case 'renderEffect':
+      // one effect rendered whole for the model (the menu's sample of
+      // SOUNDS): the same edges a request of it gives in the game
+      if (state.logic) {
+        var effect = renderEffect(message.value);
+        postMessage({id: 'effect', value: message.value, outs: effect.outs, length: effect.length});
       }
       break;
 

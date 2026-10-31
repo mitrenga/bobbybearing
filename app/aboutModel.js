@@ -62,10 +62,17 @@ export class AboutModel extends AbstractModel {
     this.desktopEntity.bkColor = ZXColor.black;
 
     // ★ the original's opening screen under the panel
-    this.screenEntity = GameAreaEntity.panelScreen(this);
-    if (!this.screenEntity) {
-      this.desktopEntity.addEntity(new TextEntity(this.desktopEntity, this.app.fonts.zxFonts8x8, 0, 1*8, this.desktopWidth, 8, 'BOBBY BEARING', ZXColor.brightWhite, false, {align: 'center'}));
-    }
+    // from localStorage at once, or from the server when it is missing there
+    // (R-062)
+    this.loadDataFiles(['screen'], (files) => {
+      if (this.app.model !== this) {
+        return;
+      }
+      this.screenEntity = GameAreaEntity.panelScreen(this, undefined, files ? files.screen : null);
+      if (!this.screenEntity) {
+        this.desktopEntity.addEntity(new TextEntity(this.desktopEntity, this.app.fonts.zxFonts8x8, 0, 1*8, this.desktopWidth, 8, 'BOBBY BEARING', ZXColor.brightWhite, false, {align: 'center'}));
+      }
+    });
 
     // the about text and the buttons, over the middle of the frame
     this.aboutEntity = new AbstractEntity(this.desktopEntity, this.panelX, this.panelY, this.panelWidth, this.panelHeight, false, ZXColor.black);

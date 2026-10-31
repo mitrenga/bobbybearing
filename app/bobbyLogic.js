@@ -62,6 +62,12 @@ class BobbyLogic extends WorldRenderer {
     // clock; the 1000 a brother home gives back ($7E8F) does not touch it.
     // Not in the original's memory.
     this.timeTicks = 0;
+    // the remake's record of a deduction of the time (gameWorker.js), null
+    // = none: {screen, digits} — the screen as the deduction ($7F73) found
+    // it and after each tick drawn the 32 bytes of the four digits
+    // (timeDigits()), so the worker can show them going down as the
+    // original does. Not in the original's memory.
+    this.timeLog = null;
     // M7: which part of the game asked for the sound in each request slot
     // ($F061, $F062), for the bus the remake plays it on (soundRequest())
     this.soundSources = {};
@@ -1275,6 +1281,9 @@ class BobbyLogic extends WorldRenderer {
    * @param {number} b - B (0 = 256).
    */
   timePenalty(b) {
+    if (this.timeLog && !this.timeLog.screen) {
+      this.timeLog.screen = this.screen().slice();
+    }
     do {
       for (var c = 0; c < 8; c++) {
         this.timeTick();
@@ -1365,7 +1374,25 @@ class BobbyLogic extends WorldRenderer {
     this.drawDigit(this.rd(0xFE68), 4);
     this.drawDigit(this.rd(0xFE67), 3);
     this.drawDigit(this.rd(0xFE66), 2);
+    if (this.timeLog && this.timeLog.screen) {
+      this.timeLog.digits.push(this.timeDigits());
+    }
   } // drawTime
+
+  /**
+   * The four digits of the time as drawn: eight lines of columns 2-5 of
+   * row 20 (drawDigit), the remake's record (timeLog).
+   * @returns {Uint8Array} 32 bytes, line by line.
+   */
+  timeDigits() {
+    var out = new Uint8Array(32);
+    for (var line = 0; line < 8; line++) {
+      for (var e = 0; e < 4; e++) {
+        out[line*4+e] = this.rd(0x5082+line*0x100+e);
+      }
+    }
+    return out;
+  } // timeDigits
 
   /**
    * ★ `$745B`: eight lines of the strip at `$F88B + a`, inverted, into the
@@ -3487,6 +3514,138 @@ class BobbyLogic extends WorldRenderer {
     this.nextBrother();                     // $F29D
   } // startGame
 
+  // --- the screen of controls after a game ($71BB) ---------------------------------
+
+  /**
+   * ★ `$71BB`: the screen after a game, the original's choice of controls —
+   * room `$1E` (a strip of tiles, discs on cells `$42`–`$45` and the end
+   * with the arrow on cell `$10`), built by `$74CC` with `$FDEA` = `$65`
+   * (`$74F3` → `$81AB`: `$808C`, `$7935`), the texts of the controls and
+   * the logo of The Edge into the buffer (`$72E6`), the buffer onto the
+   * screen (`$9387`), THE in red (`$5ACD`, `$5AED`), the variables
+   * `$FDE8`–`$FEEF` cleared, the time 9999, and the controls **CURSOR**
+   * (`$FEE7` = 2) for as long as the choice lasts; the choice so far
+   * (`$FEE7`) goes to `$72D6`. Then the passes of `afterGamePass`.
+   * tools/traceaftergame.py, tools/matchaftergame.mjs.
+   */
+  afterGame() {
+    this.wr(0x72D6, this.rd(0xFEE7));       // $71BB
+    this.wr(0xFDEA, 0x65);
+    this.wr(0xFE4F, 0x1E);
+    this.clearLists();                      // $71CB CALL $74CC → $74F3 CALL $750A
+    this.wr(0x7CD5, 0x65);                  // $81AB
+    this.clearBuffer();                     // $81AE CALL $808C
+    this.buildRoom();                       // $81B1 JP $7935
+    this.text(0x735C, 0x1480);              // $71CE CALL $72E6
+    this.copyToScreen();                    // $71D1 CALL $8DE4 = $9387
+    this.wr(0x5ACD, 0x50);
+    this.wr(0x5AED, 0x50);
+    this.wr(0xC84B, 0);                     // $71DC
+    this.wr(0xC9A4, 0);
+    this.ww(0xC990, 0xC9A5);
+    for (var a = 0xFDE8; a <= 0xFEEF; a++) {   // $71E9 LDIR $108 B
+      this.wr(a, 0);
+    }
+    for (var i = 0; i < 5; i++) {           // $71F5 LDIR: $FE66-$FE6A
+      this.wr(0xFE66+i, 0x49);
+    }
+    this.wr(0xFEE7, 2);                     // $7202 CURSOR
+    this.wr(0xFE04, 0x11);
+  } // afterGame
+
+  /**
+   * ★ One turn of `$720C`: the pass `$74CC` with `$FDEA` = `$66` — `$750A`,
+   * `$7638` (the ball rolling under control `$8214`, the delay `$7648`
+   * without state, the objects drawn `$7F81`) — and the choice by the
+   * cell under the ball `$FE2C`: `$10` starts the game (`$7481`, sound 6,
+   * the choice into `$FEE7`); a disc (`AND 7` ≥ 2) is the choice
+   * `cell & 7 − 2`, a new disc rolled onto sounds 8 (`$74CA`), a direction
+   * held on it (`$FDF6` bit 0 or 3) takes it (`$72D6`, sound 4). Then the
+   * colours of the six rows of choices (`$72D7`: `$58`, the chosen one
+   * `$78`) into the attributes from `$5A15` and the picture of the choice
+   * (`$DDFC` + 256 × choice, 7 = none) onto the screen at `$4042`.
+   * @param {Array|Function} input - The values of the IN instructions.
+   * @returns {string} 'pass', or 'start' when the ball is on the arrow.
+   */
+  afterGamePass(input) {
+    this.input = typeof input === 'function' ? input : input.slice();
+    this.outcome = 'pass';
+    // the remake's menu: a disc taken in this pass (the branch $72A1 below)
+    this.choiceTaken = false;
+    this.wr(0x74CA, 0);                     // $720C
+    this.wr(0xFE3A, 0);
+    this.wr(0xFDEA, 0x66);
+    this.wr(0xFE2D, 0x66);
+    this.clearLists();                      // $721C CALL $74CC → $74F3 CALL $750A
+    this.wr(0xFE2F, 0);                     // $7638
+    this.wr(0xFDEA, 0);
+    this.physics();                         // $763F CALL $8214
+    // $7642: the delay $7648 copies 1800 bytes onto themselves — no state
+    this.redraw();                          // $7645 JP $7F81
+    for (var i = 0; i < 6; i++) {           // $721F
+      this.wr(0x72D7+i, 0x58);
+    }
+    var a = this.rd(0xFE2C);
+    if (a === 0x10) {                       // $7231 JP Z,$7481: startFromChoice
+      this.outcome = 'start';
+      this.checkInput();
+      return this.outcome;
+    }
+    a &= 7;
+    var same = a === this.rd(0x72DF);       // $7236
+    this.wr(0x72DF, a);
+    if (!same && a >= 2) {
+      this.wr(0x74CA, 8);                   // $7241
+      this.soundRequest(0xF061, 8, 'game');
+    }
+    a = this.rd(0x72DF);
+    if (a >= 2 && (this.rd(0xFDF6) & 9) !== 9) {   // $724A → $72A1
+      this.soundRequest(0xF061, 4, 'game');
+      this.wr(0x72D6, a-2);
+      this.choiceTaken = true;
+    }
+    this.wr((0x72D7+this.rd(0x72D6)) & 0xFFFF, 0x78);   // $724E CALL $7298
+    var hl = 0x5A15;                        // $7256
+    for (i = 0; i < 6; i++) {
+      for (var j = 0; j < 11; j++) {        // $72B8
+        this.wr(hl+j, this.rd(0x72D7+i));
+      }
+      hl += 0x20;
+    }
+    this.ww(0x72D4, hl);
+    a = this.rd(0x72DF);                    // $7268
+    a = a < 2 ? 7 : a-2;                    // SUB 2 / CALL C,$7291
+    var src = (0xDDFC+(a << 8)) & 0xFFFF;
+    var de = 0x4042;
+    for (i = 0; i < 8; i++) {               // $727C
+      for (j = 0; j < 11; j++) {
+        this.wr(de+j, this.rd(src+j));
+      }
+      de += 0x100;
+      src = (src+0x20) & 0xFFFF;
+    }
+    this.checkInput();
+    return this.outcome;                    // $728E JP $720C
+  } // afterGamePass
+
+  /**
+   * ★ `$7481`: the ball on the arrow — a new game (`$FDEA` = `$64`) with the
+   * controls chosen (`$72D6` → `$FEE7`), the sound 6, `$74CC` → `$7D87`.
+   */
+  startFromChoice() {
+    this.wr(0xFDEA, 0x64);
+    this.wr(0xFEE7, this.rd(0x72D6));
+    this.soundRequest(0xF061, 6, 'game');
+    this.startGame();                       // $7491 JP $74CC
+  } // startFromChoice
+
+  /** No IN value of the pass left over. */
+  checkInput() {
+    if (typeof this.input !== 'function' && this.input.length) {
+      throw new Error(this.input.length+' IN left over');
+    }
+  } // checkInput
+
   /** ★ `$F313`: the state byte of every brother's place (`$EE49`, 3 B) 0. */
   clearPlaces() {
     var n = this.rd(0xEE48);
@@ -3997,22 +4156,69 @@ BobbyLogic.KEYS = {
 };
 
 /**
+ * ★ The keys of the controls CURSOR (`$FCB0`), which the screen after a game
+ * uses for as long as the choice lasts (`$71BB`: `$FEE7` = 2): `5` left,
+ * `6` down, `7` up, `8` right — [half-row, bit].
+ */
+BobbyLogic.CURSOR_KEYS = {
+  left: [0xF7, 0x10], down: [0xEF, 0x10], up: [0xEF, 0x08], right: [0xEF, 0x04]
+};
+
+/**
+ * The remake's room `$1E` for its menu (operator 2026-10-30): the strip of
+ * the screen after a game two cells longer and with six discs instead of
+ * four — in the room's stream (`$6D05`) the run of tiles `FE 0A 17 06`
+ * becomes 8 and the run of discs `FE 0A 1B 04` (cells `$42`-) 6. The discs
+ * are then cells `$42`-`$47`, `AND 7` 2-7, choices 0-5, which the
+ * original's six rows of colours `$72D7`-`$72DC` already cover. No other
+ * room shares the stream. And no texts (`$72E6`): the first byte of
+ * `$735C` is the end mark `?` — the texts are not in the worker's data and
+ * their first line ($80) would show in the menu. {address: value}.
+ */
+BobbyLogic.MENU_PATCH = {0x6D09: 8, 0x6D17: 6, 0x735C: 0x3F};
+
+/**
  * ★ What `IN` gives on a port with these controls held: a keyboard port
  * (`$xxFE`) has bit 6 (EAR) 0 and the bits of the keys held in the half-rows
  * chosen 0 — as the recordings have it (`$BF` with nothing held); any other
  * port `$FF`.
  * @param {number} port
  * @param {Object} controls - {up, down, left, right, cheat}.
+ * @param {Object} [keys] - The keys of the controls, BobbyLogic.KEYS by
+ *   default (CURSOR_KEYS on the screen after a game).
  * @returns {number}
  */
-BobbyLogic.keyboardPort = function(port, controls) {
+/**
+ * ★ One tick of the time with its drawing, `$7404` + `$743E`, in T states:
+ * the deduction `$7F73` with B = `$C8` (Q CHEAT, a fall: 1600 ticks) takes
+ * 4 197 933 T ≈ 1.2 s — SkoolKit's Simulator without contended memory and
+ * interrupts, over the memory of a game (sources/docs/physics.md §5).
+ */
+BobbyLogic.TICK_T = 2624;
+
+/**
+ * The digits of the time recorded (BobbyLogic.timeDigits) put into a
+ * screen.
+ * @param {Uint8Array} screen - 6912 bytes ($4000-$5AFF), written to.
+ * @param {Uint8Array} digits - 32 bytes.
+ */
+BobbyLogic.putTimeDigits = function(screen, digits) {
+  for (var line = 0; line < 8; line++) {
+    for (var e = 0; e < 4; e++) {
+      screen[0x1082+line*0x100+e] = digits[line*4+e];
+    }
+  }
+};
+
+BobbyLogic.keyboardPort = function(port, controls, keys) {
   if ((port & 0xFF) !== 0xFE) {
     return 0xFF;
   }
   var value = 0xBF;
   var rows = port >> 8;
-  Object.keys(BobbyLogic.KEYS).forEach((name) => {
-    var key = BobbyLogic.KEYS[name];
+  keys = keys || BobbyLogic.KEYS;
+  Object.keys(keys).forEach((name) => {
+    var key = keys[name];
     if (controls[name] && (~rows & ~key[0] & 0xFF)) {
       value &= ~key[1];
     }

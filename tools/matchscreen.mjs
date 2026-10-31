@@ -98,8 +98,9 @@ async function main() {
   add(compare('data úvodní obrazovky = program $DA30-$E515', packed,
               entry.subarray(TITLE_DATA-0x4000, TITLE_DATA-0x4000+packed.length)));
 
-  // ★ the game's font for the menu: ' ', '0'-'9', 'A'-'Z' = the program's
-  // table at $F70C + 8 × ASCII (gameApp.gameFont)
+  // ★ the game's font: ' ', '0'-'9', 'A'-'Z' = the program's table at
+  // $F70C + 8 × ASCII (the menu draws in a font close to it, gameApp.js
+  // zxFonts8x8Menu)
   if (scene.font && scene.font.bytes) {
     const font = ScreenComposer.fromBase64(scene.font.bytes);
     add(compare('font hry = program $F80C-$F9E3', font,

@@ -133,9 +133,28 @@ export class TapeLoadingModel extends AbstractModel {
     this.programNameEntity.hide = true;
     this.desktopEntity.addEntity(this.programNameEntity);
 
-    var tape = this.loadDataFile('tape');
-    this.loading = this.loadDataFile('loading');
-    this.unpackOverlay(this.loadDataFile('overlay'));
+    // the tape, the picture and the loader's drawing: at once from
+    // localStorage, or from the server when they are missing there (R-062)
+    this.loadDataFiles(['tape', 'loading', 'overlay'], (files) => this.initData(files));
+  } // init
+
+  /**
+   * The part of init() that needs the data files. Runs inside init() when
+   * they are in localStorage, later when they had to come from the server.
+   * @param {Object|null} files - tape, loading and overlay, or null.
+   */
+  initData(files) {
+    if (this.app.model !== this) {
+      return;
+    }
+    files = files || {};
+    var tape = files.tape;
+    this.loading = files.loading;
+    this.unpackOverlay(files.overlay);
+    // the tape's sound is rendered later, block by block (audioManager.js)
+    if (this.app.audioManager) {
+      this.app.audioManager.tapeData = tape;
+    }
     if (!tape || !this.loading) {
       this.inputLineEntity.setText('TAPE DATA MISSING (data/tape.json)');
       this.sendEvent(3000, {id: 'setMenuModel'});
@@ -148,7 +167,7 @@ export class TapeLoadingModel extends AbstractModel {
 
     this.app.stack.flashState = false;
     this.sendEvent(330, {id: 'changeFlashState'});
-  } // init
+  } // initData
 
   newBorderEntity() {
     // no X in the border, like the other screens: a click or a touch anywhere
