@@ -81,8 +81,8 @@ export class GameApp extends AbstractApp {
       // the font of the menu's item names (operator 2026-10-31): a font of
       // zx-fonts closest to the game's own ($F70C — `0`-`9` and `A`-`Z` 1-4
       // pixels a glyph apart, its F and Z are not letters) with lower case
-      // and punctuation, set below
-      zxFonts8x8Menu: new ZXFonts8x8(this, false)
+      // and punctuation, set below; proportional (operator 2026-10-31)
+      zxFonts8x8Menu: new ZXFonts8x8(this, true)
     };
     // ../zx-fonts/ch8/Crown of Ramhotep, The - Intro (1987)(Tartan
     // Software)#64000.ch8, the same file as Double Agent - Intro

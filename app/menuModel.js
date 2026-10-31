@@ -136,6 +136,7 @@ export class MenuModel extends AbstractModel {
     // the name of the item under the ball, bottom right (MenuModel.ITEMS),
     // and the disc taken in the last frame (an item, once per take)
     this.itemEntity = null;
+    this.itemColors = null;
     this.discTaken = false;
     // the item of the disc under the ball in the last frame, or none: Enter
     // opens it as left or right on the disc does
@@ -226,16 +227,25 @@ export class MenuModel extends AbstractModel {
     if (this.screenEntity) {
       this.roomEntity = new GameAreaEntity(this.desktopEntity, 0, ScreenLayout.MENU_ROOM_ROW*8, this.screenEntity.render, ScreenLayout.MENU_ROOM);
       this.desktopEntity.addEntity(this.roomEntity);
-      // in the menu's font, close to the game's own (gameApp.js zxFonts8x8Menu)
-      this.itemEntity = new TextEntity(this.desktopEntity, this.app.fonts.zxFonts8x8Menu, 0, this.desktopHeight-8, this.desktopWidth-4*8, 8, '', ZXColor.brightCyan, false, {align: 'right'});
+      // in the menu's font, close to the game's own (gameApp.js zxFonts8x8Menu);
+      // a button, because a click on the name opens the item as Enter does;
+      // with no background of its own it hovers and clicks in the platform's
+      // colours of a button on black (ZXPlatform), the black under it; its
+      // right edge two pixels right of the cells, on the optical edge of the
+      // lettering BOBBY BEARING (operator 2026-10-31)
+      var buttonColors = this.app.stack.ButtonEntity;
+      this.itemColors = {hover: buttonColors.hoverColor[ZXColor.black], click: buttonColors.clickColor[ZXColor.black]};
+      this.itemEntity = new ButtonEntity(this.desktopEntity, this.app.fonts.zxFonts8x8Menu, 0, this.desktopHeight-8, this.desktopWidth-4*8+2, 8, '', {id: 'openBallItem'}, [], ZXColor.brightCyan, false,
+        {align: 'left', leftMargin: 1, hoverColor: this.itemColors.hover, clickColor: this.itemColors.click});
       this.desktopEntity.addEntity(this.itemEntity);
       this.showItem();
       // the version under BEARING, its right edge on the end of the lettering
       // (column 29 of the screen, less the columns MENU_TITLE leaves out), in the
-      // menu's font; a button, because a newer version on the server turns
-      // it into UPGRADE !
+      // menu's font, a pixel right of it to meet the lettering optically
+      // (operator 2026-10-31); a button, because a newer version on the
+      // server turns it into UPGRADE !
       var versionWidth = MenuModel.VERSION_CELLS*8;
-      this.versionEntity = new ButtonEntity(this.desktopEntity, this.app.fonts.zxFonts8x8Menu, (30-ScreenLayout.MENU_TITLE.col)*8-versionWidth, ScreenLayout.MENU_ROOM_ROW*8, versionWidth, 8, '', {id: 'upgradeApp'}, [], ZXColor.yellow, false, {align: 'right'});
+      this.versionEntity = new ButtonEntity(this.desktopEntity, this.app.fonts.zxFonts8x8Menu, (30-ScreenLayout.MENU_TITLE.col)*8-versionWidth+1, ScreenLayout.MENU_ROOM_ROW*8, versionWidth, 8, '', {id: 'upgradeApp'}, [], ZXColor.yellow, false, {align: 'right'});
       this.desktopEntity.addEntity(this.versionEntity);
       // no hover or click colours: it looks like plain text
       this.versionEntity.hoverColor = false;
@@ -355,6 +365,17 @@ export class MenuModel extends AbstractModel {
       }
       text += value;
     }
+    // the button as wide as the text and a pixel on either side of it (the
+    // proportional font cuts the glyphs to their pixels; the hover colour
+    // shows them), its right edge where it stands: only a click on the name
+    // opens the item
+    var right = this.itemEntity.x+this.itemEntity.width;
+    this.itemEntity.width = text.length ? this.itemEntity.lineWidth(text)+2 : 1;
+    this.itemEntity.x = right-this.itemEntity.width;
+    this.itemEntity.hide = !text.length;
+    // the hint (MenuModel.HINT) is plain text: no hover or click colours
+    this.itemEntity.hoverColor = item ? this.itemColors.hover : false;
+    this.itemEntity.clickColor = item ? this.itemColors.click : false;
     // the map goes with the text: a new text redraws the entity (setText)
     this.itemEntity.options.penColorsMap = colors;
     this.itemEntity.setText(text);
@@ -531,14 +552,23 @@ export class MenuModel extends AbstractModel {
         return true;
 
       case 'showAbout':
-        // a modal panel over the menu (aboutEntity.js), silent until M6
+        // a modal panel over the menu (aboutEntity.js), silent until M6; 25 px
+        // left of the dialogs, 13 px lower, 30 px wider and 3 px shorter
+        // (operator 2026-10-31)
       case 'showAbout2':
-        this.openPanel(new AboutEntity(this.desktopEntity, this.dialogProperties.x, this.dialogProperties.y, this.dialogProperties.width, this.dialogProperties.height));
+        this.openPanel(new AboutEntity(this.desktopEntity, this.dialogProperties.x-25, this.dialogProperties.y+13, this.dialogProperties.width+30, this.dialogProperties.height-3));
         return true;
 
       case 'upgradeApp':
         if (this.newVersionAvailable) {
           this.app.upgradeApp();
+        }
+        return true;
+
+      case 'openBallItem':
+        // a click on the name of the item under the ball
+        if (this.ballItem && !this.desktopEntity.modalEntity) {
+          this.sendEvent(0, {id: this.ballItem.event});
         }
         return true;
 
