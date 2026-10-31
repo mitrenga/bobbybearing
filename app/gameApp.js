@@ -6,8 +6,6 @@ const { Fonts5x5 } = await import('./svision/js/platform/canvas2D/fonts5x5.js?ve
 const { Fonts3x3 } = await import('./svision/js/platform/canvas2D/fonts3x3.js?ver='+window.srcVersion);
 const { ZXResetModel } = await import('./svision/js/platform/canvas2D/zx/zxResetModel.js?ver='+window.srcVersion);
 const { MenuModel } = await import('./menuModel.js?ver='+window.srcVersion);
-const { AboutModel } = await import('./aboutModel.js?ver='+window.srcVersion);
-const { HallOfFameModel } = await import('./hallOfFameModel.js?ver='+window.srcVersion);
 const { GameModel } = await import('./gameModel.js?ver='+window.srcVersion);
 const { GameOverModel } = await import('./gameOverModel.js?ver='+window.srcVersion);
 const { GameScore } = await import('./gameScore.js?ver='+window.srcVersion);
@@ -21,7 +19,8 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  * Bobby Bearing application shell (built on the Thunderbirds and Booty ones —
  * a ZX game on ZXPlatform with a worker).
  * LoadingModel -> MenuModel -> GameModel (the game) -> GameOverModel, plus
- * TapeLoadingModel, HallOfFameModel and AboutModel off the menu.
+ * TapeLoadingModel off the menu; HALL OF FAME and ABOUT GAME are modal
+ * panels over it (hallOfFameEntity.js, aboutEntity.js).
  *
  * ★ **LOAD TAPE is one of the ways to start**, not a decoration: the second
  * turbo block of the tape carries the loading screen and the remake loads
@@ -311,12 +310,6 @@ export class GameApp extends AbstractApp {
         break;
       case 'MenuModel':
         this.model = new MenuModel(this);
-        break;
-      case 'AboutModel':
-        this.model = new AboutModel(this);
-        break;
-      case 'HallOfFameModel':
-        this.model = new HallOfFameModel(this);
         break;
       case 'GameModel':
         this.model = new GameModel(this);

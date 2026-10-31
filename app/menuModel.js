@@ -14,6 +14,8 @@ const { ZXVideoRAMEntity } = await import('./svision/js/platform/canvas2D/zx/zxV
 const { GameAreaEntity } = await import('./gameAreaEntity.js?ver='+window.srcVersion);
 const { ScreenComposer } = await import('./screenComposer.js?ver='+window.srcVersion);
 const { ScreenLayout } = await import('./screenLayout.js?ver='+window.srcVersion);
+const { HallOfFameEntity } = await import('./hallOfFameEntity.js?ver='+window.srcVersion);
+const { AboutEntity } = await import('./aboutEntity.js?ver='+window.srcVersion);
 // begin code
 
 /**
@@ -48,7 +50,7 @@ export class MenuModel extends AbstractModel {
     this.id = 'MenuModel';
 
     // the dialogs opened from the menu look like the ABOUT GAME panel
-    // (aboutModel.js): a black window with the title in bright red. The
+    // (aboutEntity.js): a black window with the title in bright red. The
     // contents come from svision and are laid out for 200 x 124 px; the
     // window has no frame, only the title bar, so they get 192 x 117 — the
     // right edge of the volume panel (MAX, +) and of the keyboard loses up to
@@ -449,6 +451,16 @@ export class MenuModel extends AbstractModel {
   } // openDialog
 
   /**
+   * A panel of the remake's own (HALL OF FAME, ABOUT GAME) as a modal over the
+   * menu, where the dialogs open: the menu ticks it and turns on under it.
+   * @param {AbstractEntity} entity - The panel, on the desktop.
+   */
+  openPanel(entity) {
+    this.releaseControls();
+    this.desktopEntity.addModalEntity(entity);
+  } // openPanel
+
+  /**
    * Asks for the browser's gesture for audio before an action that plays
    * sound: ZXWaitForAudioEventEntity in a window without a title, centred on
    * the screen, coloured by the `waitForAudioEvent` dialog properties.
@@ -493,9 +505,9 @@ export class MenuModel extends AbstractModel {
         return true;
 
       case 'showHallOfFame':
-        // a screen of its own (hallOfFameModel.js); silent, so no gesture for
-        // audio is needed on the way
-        this.app.setModel('HallOfFameModel');
+        // a modal panel over the menu (hallOfFameEntity.js), so the menu keeps
+        // turning under it; silent, so no gesture for audio is needed on the way
+        this.openPanel(new HallOfFameEntity(this.desktopEntity, this.dialogProperties.x, this.dialogProperties.y, this.dialogProperties.width, this.dialogProperties.height));
         return true;
 
       case 'setSounds':
@@ -519,9 +531,9 @@ export class MenuModel extends AbstractModel {
         return true;
 
       case 'showAbout':
-        // a screen of its own (aboutModel.js), silent until M6
+        // a modal panel over the menu (aboutEntity.js), silent until M6
       case 'showAbout2':
-        this.app.setModel('AboutModel');
+        this.openPanel(new AboutEntity(this.desktopEntity, this.dialogProperties.x, this.dialogProperties.y, this.dialogProperties.width, this.dialogProperties.height));
         return true;
 
       case 'upgradeApp':
