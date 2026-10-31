@@ -137,6 +137,9 @@ function reset() {
     screen: null,
     // a deduction of the time being shown (countdownStep), or null
     countdown: null,
+    // CHEAT taken once a press: after the pass that read it, not again
+    // until it is let go (tick, countdownStep)
+    cheatBlocked: false,
     sounds: [],
     // the remake's score (M7, outside the original's memory): see score()
     score: {brothers: 0, rooms: 0, time: 0},
@@ -251,7 +254,15 @@ function tick() {
   }
   state.logic.timeLog = {screen: null, digits: []};
   try {
-    outcome = state.logic.pass((port) => BobbyLogic.keyboardPort(port, state.controls));
+    // ★ Q held keeps the ball stunned ($81EA: $FE50 = 2 every pass) and
+    // the deduction comes when it is let go; the remake reads Q in one pass
+    // a press, so the stun, its animation and the deduction go at once
+    // (operator 2026-10-31)
+    var controls = state.cheatBlocked ? Object.assign({}, state.controls, {cheat: false}) : state.controls;
+    if (controls.cheat) {
+      state.cheatBlocked = true;
+    }
+    outcome = state.logic.pass((port) => BobbyLogic.keyboardPort(port, controls));
   } catch (error) {
     state.stopped = error.message;
     state.running = false;
@@ -283,12 +294,18 @@ function tick() {
  * PASS_MS, the screen as the deduction found it with the digits of the
  * tick it would be at, the interrupts going on (the sound); the pass's own
  * frame comes last. The controls are not read meanwhile, as there.
+ *
+ * Q pressed while it runs is not taken, nor Q still held after it: CHEAT
+ * waits till it is let go (`cheatBlocked`) — the remake's, the original
+ * reads Q every pass (operator 2026-10-31).
  */
 function countdownStep() {
   var c = state.countdown;
   c.step++;
   if (c.step > c.steps) {
     state.countdown = null;
+    // Q pressed during the deduction waits till it is let go
+    state.cheatBlocked = state.controls.cheat;
     passDone(c.outcome);
     return;
   }
@@ -645,6 +662,10 @@ onmessage = function(event) {
     case 'controls':
       // a direction of the player's own takes over from a target
       state.target = null;
+      // CHEAT let go after a deduction of the time: it is taken again
+      if (!state.countdown && !message.cheat) {
+        state.cheatBlocked = false;
+      }
       Object.keys(state.controls).forEach((key) => {
         if (key in message) {
           state.controls[key] = !!message[key];
