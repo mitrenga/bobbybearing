@@ -10,8 +10,8 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  * and SETTINGS (framedDialogEntity.js) and PAUSE GAME (pauseGameEntity.js),
  * operator 2026-10-31: a black panel in a bright red frame 3 px wide
  * (FRAME) with rounded corners (CORNER, the top left one; the others
- * mirrored), a black line round it (OUTLINE_CORNER), 3 px under the
- * bottom (outlineBottom), and the heading on the bottom of the frame at
+ * mirrored), a black line 3 px wide round it (OUTLINE_CORNER,
+ * outlineWidth), and the heading on the bottom of the frame at
  * the right, bright cyan on black in the menu's font (gameApp.js
  * zxFonts8x8Menu). The buttons of the panels
  * round their corners by BUTTON_CORNER (ButtonEntity cornerMask).
@@ -57,11 +57,10 @@ export class FramedPanelEntity extends AbstractEntity {
 
     this.frameColor = ZXColor.brightRed;
     this.panelBkColor = ZXColor.black;
-    // a line a pixel wide round the frame, or false: black, so the frame
-    // stands out of what is under it, and under the bottom 3 px (operator
-    // 2026-10-31)
+    // a line round the frame, or false: black, so the frame stands out of
+    // what is under it, 3 px wide (operator 2026-10-31)
     this.outlineColor = ZXColor.black;
-    this.outlineBottom = 3;
+    this.outlineWidth = 3;
     this.innerX = f.x;
     this.innerY = f.y;
     this.innerWidth = width;
@@ -126,19 +125,20 @@ export class FramedPanelEntity extends AbstractEntity {
     var w = this.width, h = this.height;
     if (this.outlineColor !== false) {
       var outline = FramedPanelEntity.OUTLINE_CORNER;
+      var t = this.outlineWidth;
       var line = (x, y, width, height) => this.app.layout.paint(this, x, y, width, height, this.outlineColor);
-      line(size, -1, w-2*size, 1);
-      line(size, h, w-2*size, this.outlineBottom);
-      line(-1, size, 1, h-2*size);
-      line(w, size, 1, h-2*size);
+      line(size, -t, w-2*size, t);
+      line(size, h, w-2*size, t);
+      line(-t, size, t, h-2*size);
+      line(w, size, t, h-2*size);
       for (var r = 0; r < outline.length; r++) {
         for (var c = 0; c < outline.length; c++) {
           if (outline[r][c] == '#') {
-            line(c-1, r-1, 1, 1);
-            line(w-c, r-1, 1, 1);
-            // the bottom corners thickened down like the bottom line
-            line(c-1, h-r, 1, this.outlineBottom);
-            line(w-c, h-r, 1, this.outlineBottom);
+            // each pixel of the corner thickened outwards like the lines
+            line(c-t, r-t, t, t);
+            line(w-c, r-t, t, t);
+            line(c-t, h-r, t, t);
+            line(w-c, h-r, t, t);
           }
         }
       }
