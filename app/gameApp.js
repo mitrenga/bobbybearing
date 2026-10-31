@@ -4,6 +4,7 @@ const { AudioManager } = await import('./audioManager.js?ver='+window.srcVersion
 const { ZXFonts8x8 } = await import('./svision/js/platform/canvas2D/zx/zxFonts8x8.js?ver='+window.srcVersion);
 const { Fonts5x5 } = await import('./svision/js/platform/canvas2D/fonts5x5.js?ver='+window.srcVersion);
 const { Fonts3x3 } = await import('./svision/js/platform/canvas2D/fonts3x3.js?ver='+window.srcVersion);
+const { Fonts4x6 } = await import('./svision/js/platform/canvas2D/fonts4x6.js?ver='+window.srcVersion);
 const { ZXResetModel } = await import('./svision/js/platform/canvas2D/zx/zxResetModel.js?ver='+window.srcVersion);
 const { MenuModel } = await import('./menuModel.js?ver='+window.srcVersion);
 const { GameModel } = await import('./gameModel.js?ver='+window.srcVersion);
@@ -78,6 +79,8 @@ export class GameApp extends AbstractApp {
       zxFonts8x8Title: new ZXFonts8x8(this, true),
       fonts5x5: new Fonts5x5(this),
       fonts3x3: new Fonts3x3(this),
+      // the places of the hall of fame (hallOfFameEntity.js)
+      fonts4x6: new Fonts4x6(this),
       // the font of the menu's item names (operator 2026-10-31): a font of
       // zx-fonts closest to the game's own ($F70C — `0`-`9` and `A`-`Z` 1-4
       // pixels a glyph apart, its F and Z are not letters) with lower case

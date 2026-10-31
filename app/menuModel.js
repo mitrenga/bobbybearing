@@ -472,13 +472,16 @@ export class MenuModel extends AbstractModel {
   } // openDialog
 
   /**
-   * A panel of the remake's own (HALL OF FAME, ABOUT GAME) as a modal over the
-   * menu, where the dialogs open: the menu ticks it and turns on under it.
-   * @param {AbstractEntity} entity - The panel, on the desktop.
+   * A panel of the remake's own (HALL OF FAME, ABOUT GAME — framedPanelEntity.js)
+   * as a modal over the menu: the menu ticks it and turns on under it. Both
+   * take the same place: 25 px left of the dialogs, 13 px lower, 30 px wider
+   * and 3 px shorter (operator 2026-10-31), the frame round it.
+   * @param {Function} PanelEntity - HallOfFameEntity or AboutEntity.
    */
-  openPanel(entity) {
+  openPanel(PanelEntity) {
     this.releaseControls();
-    this.desktopEntity.addModalEntity(entity);
+    var p = this.dialogProperties;
+    this.desktopEntity.addModalEntity(new PanelEntity(this.desktopEntity, p.x-25, p.y+13, p.width+30, p.height-3));
   } // openPanel
 
   /**
@@ -528,7 +531,7 @@ export class MenuModel extends AbstractModel {
       case 'showHallOfFame':
         // a modal panel over the menu (hallOfFameEntity.js), so the menu keeps
         // turning under it; silent, so no gesture for audio is needed on the way
-        this.openPanel(new HallOfFameEntity(this.desktopEntity, this.dialogProperties.x, this.dialogProperties.y, this.dialogProperties.width, this.dialogProperties.height));
+        this.openPanel(HallOfFameEntity);
         return true;
 
       case 'setSounds':
@@ -552,11 +555,9 @@ export class MenuModel extends AbstractModel {
         return true;
 
       case 'showAbout':
-        // a modal panel over the menu (aboutEntity.js), silent until M6; 25 px
-        // left of the dialogs, 13 px lower, 30 px wider and 3 px shorter
-        // (operator 2026-10-31)
+        // a modal panel over the menu (aboutEntity.js), silent until M6
       case 'showAbout2':
-        this.openPanel(new AboutEntity(this.desktopEntity, this.dialogProperties.x-25, this.dialogProperties.y+13, this.dialogProperties.width+30, this.dialogProperties.height-3));
+        this.openPanel(AboutEntity);
         return true;
 
       case 'upgradeApp':
