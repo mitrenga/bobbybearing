@@ -8,9 +8,12 @@
 
 `app-icon.svg` (supplied by the operator 2026-10-31) is a smiling silver
 ball with turquoise neon outlines, after the poster. It is a drawing, not
-graphics taken out of the original. The canvas is 1024 × 1024 and all the
-artwork, glow included, stays inside the middle 800 × 800 square, so that a
-launcher's mask (`purpose: maskable`) does not cut it.
+graphics taken out of the original. The background is a radial gradient of
+yellow to orange, the colours of the poster's tiles, over the whole canvas
+(chosen by the operator 2026-10-31: a transparent one left the silver ball
+lost on a light launcher). The canvas is 1024 × 1024 and all the artwork,
+glow included, stays inside the middle 800 × 800 square, so that a
+launcher's mask (`purpose: maskable`) cuts only background.
 
 The PNG set and the favicon are made from it by the library's tools (by hand,
 like a build), run in this directory:

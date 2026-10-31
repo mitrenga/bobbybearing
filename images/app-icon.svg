@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
 <title id="title">Bobby Bearing — stříbrná neonová koule</title>
-<desc id="desc">Usměvavá stříbrná koule s tyrkysovými neonovými obrysy. Průhledné okraje nejméně 112 pixelů ze všech stran.</desc>
+<desc id="desc">Usměvavá stříbrná koule s tyrkysovými neonovými obrysy. Na žlutooranžovém pozadí, kresba nejméně 112 pixelů od okrajů.</desc>
 <defs>
  <radialGradient id="silver" cx="34%" cy="24%" r="77%"><stop stop-color="#ffffff"/><stop offset=".23" stop-color="#e9edf1"/><stop offset=".48" stop-color="#b9c1ca"/><stop offset=".68" stop-color="#f0f3f6"/><stop offset=".87" stop-color="#87929f"/><stop offset="1" stop-color="#d6dce3"/></radialGradient>
  <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#26efff"/><stop offset=".35" stop-color="#ffffff"/><stop offset=".6" stop-color="#ff51ed"/><stop offset="1" stop-color="#ffe85e"/></linearGradient>
@@ -9,7 +9,10 @@
  <filter id="glow" x="-15%" y="-15%" width="130%" height="130%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="9"/></filter>
  <clipPath id="safe"><rect x="112" y="112" width="800" height="800"/></clipPath>
 </defs>
-<!-- All artwork including glow is confined to a 800px square, leaving 10.9375% clear margins. -->
+<!-- The yellow and orange of the poster's tiles, over the whole canvas. -->
+<radialGradient id="bg" cx="50%" cy="45%" r="75%"><stop stop-color="#ffd23a"/><stop offset="1" stop-color="#ff8a00"/></radialGradient>
+<rect width="1024" height="1024" fill="url(#bg)"/>
+<!-- All artwork including glow is confined to a 800px square, leaving 10.9375% margins of background only. -->
 <g clip-path="url(#safe)">
  <circle cx="512" cy="512" r="366" fill="none" stroke="#20eaff" stroke-width="18" opacity=".75" filter="url(#glow)"/>
  <circle cx="512" cy="512" r="366" fill="url(#silver)" stroke="#08243b" stroke-width="8"/>
