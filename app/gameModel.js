@@ -336,7 +336,7 @@ export class GameModel extends AbstractModel {
     this.sendEvent(0, {id: 'pauseAllAudioBuses'});
     // EXIT GAME ends the game the way the original's end does: the score is
     // shown and stored in the hall of fame (R-049); the panel shows it too
-    this.desktopEntity.addModalEntity(new PauseGameEntity(this.desktopEntity, 52, 34, 153, 97, 'PAUSE GAME', 'GameExitModel'));
+    this.desktopEntity.addModalEntity(new PauseGameEntity(this.desktopEntity, 52, 34, 153, 73, 'PAUSE GAME', 'GameExitModel'));
   } // pauseGame
 
   handleWorkerMessage(event) {

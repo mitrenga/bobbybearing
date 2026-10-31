@@ -1,4 +1,4 @@
-const { AbstractEntity } = await import('./svision/js/abstractEntity.js?ver='+window.srcVersion);
+const { FramedPanelEntity } = await import('./framedPanelEntity.js?ver='+window.srcVersion);
 const { TextEntity } = await import('./svision/js/platform/canvas2D/textEntity.js?ver='+window.srcVersion);
 const { ButtonEntity } = await import('./svision/js/platform/canvas2D/buttonEntity.js?ver='+window.srcVersion);
 const { MenuEntity } = await import('./svision/js/platform/canvas2D/menuEntity.js?ver='+window.srcVersion);
@@ -14,12 +14,17 @@ const { AudioManager } = await import('./audioManager.js?ver='+window.srcVersion
  * ? What it shows while it waits is M4. The panel here is the remake's own,
  * like the main menu; `P`, Escape and a tab that loses focus open it,
  * because a browser game has to stop somewhere (ZADANI chap. 10).
+ *
+ * The window is the remake's framed panel (framedPanelEntity.js, operator
+ * 2026-10-31): the black panel, bright white text, the selected item on
+ * a bright cyan bar, the heading on the frame as in ABOUT GAME.
  */
-export class PauseGameEntity extends AbstractEntity {
+export class PauseGameEntity extends FramedPanelEntity {
 
   constructor(parentEntity, x, y, width, height, title, exitModel) {
-    super(parentEntity, x, y, width, height, false, false);
+    super(parentEntity, x, y, width, height);
     this.id = 'PauseGameEntity';
+
 
     this.title = title;
     this.exitModel = exitModel;
@@ -29,7 +34,7 @@ export class PauseGameEntity extends AbstractEntity {
       {t1: 'EXIT GAME', event: {id: 'exitGame'}}
     ];
     this.menuOptions = {
-      fonts: this.app.fonts.zxFonts8x8,
+      fonts: this.app.fonts.zxFonts8x8Menu,
       leftMargin: 9,
       rightMargin: 9,
       topMargin: 8,
@@ -39,26 +44,43 @@ export class PauseGameEntity extends AbstractEntity {
       t2Width: 114,
       t2RightMargin: 3,
       t2TopMargin: 2, 
-      textColor: ZXColor.black,
+      textColor: ZXColor.brightWhite,
       selectionTextColor: ZXColor.black,
-      selectionBarColor: '#dbdbdbff',
-      hoverColor: '#0000001e',
-      selectionHoverColor: '#efefefff',
-      clickColor: '#0000002e',
-      selectionClickColor: '#ffffffff'
+      selectionBarColor: ZXColor.brightCyan,
+      hoverColor: '#ffffff1e',
+      selectionHoverColor: '#82e8fdff',
+      clickColor: '#ffffff2e',
+      selectionClickColor: '#b8f2feff'
     }
   } // constructor
 
   init() {
     super.init();
-    this.addEntity(new AbstractEntity(this, 0, 0, this.width, this.height, false, ZXColor.brightWhite));
-    this.addEntity(new TextEntity(this, this.app.fonts.fonts5x5, 0, 0, this.width, 9, this.title, ZXColor.brightBlack, false, {align: 'center', margin: 2}));
-    this.addEntity(new MenuEntity(this, 1, 8, this.width-2, this.height-9, ZXColor.yellow, this.menuOptions, this, this.getMenuData));
+
+    var x = this.innerX, y = this.innerY, w = this.innerWidth, h = this.innerHeight;
+    // the items in the remake's font (gameApp.js zxFonts8x8Menu, operator
+    // 2026-10-31), the score below stays 5x5
+    this.addEntity(new MenuEntity(this, x+1, y+1, w-2, h-2, false, this.menuOptions, this, this.getMenuData));
     // M7: brothers and rooms under the items (operator 2026-10-30: the
     // score shows in the pause too, without the time — the panel's clock
     // is on the screen), as the worker last sent them
-    this.addEntity(new TextEntity(this, this.app.fonts.fonts5x5, 1, this.height-14, this.width-2, 9, GameScore.text(this.app.score), ZXColor.brightBlack, false, {align: 'center', margin: 2}));
+    this.addEntity(new TextEntity(this, this.app.fonts.fonts5x5, x+1, y+h-14, w-2, 9, GameScore.text(this.app.score), ZXColor.brightWhite, false, {align: 'center', margin: 2}));
+
+    // the heading on the frame, as in ABOUT GAME
+    this.addTitle(this.title);
   } // init
+
+  /**
+   * The heading of the frame (FramedPanelEntity.titleEvent) a pixel higher
+   * (operator 2026-10-31).
+   * @param {string} text - The heading.
+   * @returns {Object} The 'updateEntity' event of the heading.
+   */
+  titleEvent(text) {
+    var event = super.titleEvent(text);
+    event.y--;
+    return event;
+  } // titleEvent
 
   getMenuData(self, key, row) {
     switch (key) {
