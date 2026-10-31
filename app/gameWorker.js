@@ -684,6 +684,23 @@ onmessage = function(event) {
       }
       break;
 
+    case 'endGame':
+      // EXIT GAME in the remake's pause: ★ the original's end screen of the
+      // time out ($7D06 with $749D, as $7494 calls it) over the game as it
+      // stands, its sound, the clock stopped and the last frame with the
+      // outcome 'quit' — the model ends the game on it as on the others
+      if (state.logic && !state.menu && state.running) {
+        state.countdown = null;
+        state.logic.endScreen(0x749D, 0x70, 'quit');
+        interrupts();
+        state.screen = toBase64(state.logic.screen());
+        state.running = false;
+        stopClock();
+        state.outcome = 'quit';
+        postMessage(frame(true));
+      }
+      break;
+
     case 'pause':
       state.paused = true;
       stopClock();

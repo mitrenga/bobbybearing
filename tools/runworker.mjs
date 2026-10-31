@@ -323,6 +323,18 @@ function main() {
   check(deductions(qSound.messages) === 1, `Q držené 160 tiků: jedna srážka bez puštění (je ${deductions(qSound.messages)})`);
   check(cheatSounds(qSound.messages) === 1, `Q držené: zvuk CHEAT jednou (je ${cheatSounds(qSound.messages)})`);
 
+  // --- EXIT GAME (endGame): koncová obrazovka konce času přes hru, zvuk 6,
+  // outcome quit, hodiny stojí
+  const exit = run({}, 30, false, {right: true});
+  exit.worker.send({id: 'pause'});
+  exit.worker.send({id: 'endGame'});
+  const exitFrame = exit.messages[exit.messages.length-1];
+  check(exitFrame.outcome === 'quit' && exitFrame.screen && (exitFrame.sounds || []).some((e) => e.value === 6),
+        'EXIT GAME: snímek s outcome quit, obrazovkou a zvukem 6');
+  const exitCount = exit.messages.length;
+  exit.worker.send({id: 'tick'});
+  check(exit.messages.length === exitCount, 'EXIT GAME: po konci už se netiká');
+
   // --- menu: obrazovka po hře originálu ($71BB) v místnosti $1E se šesti
   // disky (BobbyLogic.MENU_PATCH); koule se valí klávesami CURSOR
   const menuDown = run({mode: 'menu'}, 80, false, {down: true});

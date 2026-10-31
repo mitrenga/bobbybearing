@@ -135,7 +135,13 @@ export class PauseGameEntity extends FramedPanelEntity {
         return true;
 
       case 'exitGame':
-        this.app.setModel(this.exitModel);
+        if (this.exitModel) {
+          this.app.setModel(this.exitModel);
+        } else {
+          // the model ends the game itself (gameModel.js endGame)
+          this.destroy();
+          this.sendEvent(0, 0, {id: 'endGame'});
+        }
         return true;
     }
 

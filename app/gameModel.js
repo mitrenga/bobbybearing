@@ -41,9 +41,12 @@ export class GameModel extends AbstractModel {
     this.id = 'GameModel';
 
     this.gameOver = false;
-    // the outcome of the game and when the end screen came (loopModel)
+    // EXIT GAME asked the worker for the end screen (endGame)
+    this.ending = false;
+    // the outcome of the game
     this.outcome = 'pass';
-    this.gameOverAt = false;
+    // the end screen for GameOverModel: none unless the game ends on one
+    app.endScreen = null;
     this.dataMissingShown = false;
     // ★ the original's four directions (the Kempston bits of $FDF6) and its
     // `Q` CHEAT (hw_notes.md)
@@ -154,7 +157,11 @@ export class GameModel extends AbstractModel {
   shutdown() {
     super.shutdown();
     this.sendWorkerMessage({id: 'reset'});
-    this.sendEvent(0, {id: 'stopAllAudioBuses'});
+    // the sound of the end screen ($7D3D, effect 6) plays on under the
+    // score (GameOverModel stops the buses when it goes)
+    if (!this.gameOver) {
+      this.sendEvent(0, {id: 'stopAllAudioBuses'});
+    }
   } // shutdown
 
   /** The message over a black screen when the game data is missing. */
@@ -231,9 +238,15 @@ export class GameModel extends AbstractModel {
 
     switch (event.id) {
 
-      case 'exitGame':
-        // a game left early keeps its score too (R-049)
-        this.app.setModel('GameExitModel');
+      case 'endGame':
+        // EXIT GAME in the pause: the worker draws the original's end screen
+        // of the time out over the game (its GAME OVER and the brothers'
+        // balls) and its frame ends the game as the original's end does —
+        // the score over it, stored too (R-049, operator 2026-10-31); ★ the
+        // original's own way out of its pause (`1`+`4`) has no end screen
+        this.ending = true;
+        this.sendWorkerMessage({id: 'endGame'});
+        this.sendEvent(0, {id: 'continueAllAudioBuses'});
         return true;
 
       case 'blurWindow':
@@ -329,14 +342,15 @@ export class GameModel extends AbstractModel {
 
   /** pauses the worker and opens the pause menu */
   pauseGame() {
-    if (this.desktopEntity.modalEntity || this.gameOver) {
+    if (this.desktopEntity.modalEntity || this.gameOver || this.ending) {
       return;
     }
     this.sendWorkerMessage({id: 'pause'});
     this.sendEvent(0, {id: 'pauseAllAudioBuses'});
-    // EXIT GAME ends the game the way the original's end does: the score is
-    // shown and stored in the hall of fame (R-049); the panel shows it too
-    this.desktopEntity.addModalEntity(new PauseGameEntity(this.desktopEntity, 52, 34, 153, 73, 'PAUSE GAME', 'GameExitModel'));
+    // EXIT GAME ends the game the way the original's end does: the end
+    // screen with the score, stored in the hall of fame (R-049, endGame);
+    // the panel shows the score too
+    this.desktopEntity.addModalEntity(new PauseGameEntity(this.desktopEntity, 52, 34, 153, 73, 'PAUSE GAME', false));
   } // pauseGame
 
   handleWorkerMessage(event) {
@@ -360,12 +374,11 @@ export class GameModel extends AbstractModel {
           this.app.generatorSeed = data.generator;
         }
         if (data.outcome && data.outcome !== 'pass' && !this.gameOver) {
-          // ★ the game ended on the original's end screen ($7D06): it stays
-          // as long as the original waits ($7D3D, ≈ 7 s), then the menu
-          // stands for the original's screen of controls ($71BB)
+          // ★ the game ended on the original's end screen ($7D06): the
+          // remake's score goes over it (GameOverModel, operator 2026-10-31)
           this.gameOver = true;
-          this.gameOverAt = false;
           this.outcome = data.outcome;
+          this.app.endScreen = data.screen || null;
         }
         if (this.inputEntity && data.controls) {
           var held = Object.keys(data.controls).filter((key) => data.controls[key]);
@@ -604,15 +617,10 @@ export class GameModel extends AbstractModel {
     // message has drawn since its last pass
     this.updateFps(timestamp);
     if (this.gameOver) {
-      // ★ the original keeps the end screen for $1770 × 256 loops of $7D48
-      // (≈ 7 s), then its screen of controls comes — here the remake's
-      // screen of the score (M7) on the way to the menu
-      if (this.gameOverAt === false) {
-        this.gameOverAt = timestamp;
-      } else if (timestamp-this.gameOverAt >= GameModel.END_SCREEN_MS) {
-        this.app.setModel('GameOverModel');
-        return;
-      }
+      // the end screen with the remake's score over it, on the way to the
+      // menu (GameOverModel)
+      this.app.setModel('GameOverModel');
+      return;
     }
     if (this.needDraw) {
       this.drawModel();
@@ -621,9 +629,3 @@ export class GameModel extends AbstractModel {
   } // loopModel
 
 } // GameModel
-
-/**
- * ★ `$7D3D`: `$1770` × (256 × `DEC A / JR NZ` + `DEC BC / XOR A / LD A,C /
- * OR B / JR NZ`) = 6000 × (256 × 16 + 30) T ≈ 24.8 M T at 3.5 MHz.
- */
-GameModel.END_SCREEN_MS = 7080;

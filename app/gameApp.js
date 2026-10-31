@@ -227,6 +227,9 @@ export class GameApp extends AbstractApp {
     // the menu comes back from SHOW TAPE LOADING with its ball where it was
     // (menuModel.js, gameWorker.js menuBall)
     this.menuResume = false;
+    // ★ the original's end screen ($7D06) the last game ended on, for the
+    // score over it (gameModel.js, gameOverModel.js), or null
+    this.endScreen = null;
     this.player = 1;
     this.level = 0;
     this.playerName = Tool.readCookie('playerName', '');
@@ -330,9 +333,8 @@ export class GameApp extends AbstractApp {
         this.model = new GameModel(this);
         break;
       case 'GameOverModel':
-      case 'GameExitModel':
-        // the game is over either way: the original's end, or EXIT GAME in
-        // the pause; the score is stored in both cases (R-049)
+        // the game is over: the original's end, or EXIT GAME in the pause
+        // (gameModel.js endGame); the score is stored (R-049)
         this.model = new GameOverModel(this, 'MenuModel');
         break;
       case 'TapeLoadingModel':
