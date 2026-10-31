@@ -21,7 +21,8 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  * a ZX game on ZXPlatform with a worker).
  * LoadingModel -> MenuModel -> GameModel (the game) -> GameOverModel, plus
  * TapeLoadingModel off the menu; HALL OF FAME and ABOUT GAME are modal
- * panels over it (hallOfFameEntity.js, aboutEntity.js).
+ * panels over it (hallOfFameEntity.js, aboutEntity.js), PLAYER NAME,
+ * SOUNDS and SETTINGS too (framedDialogEntity.js).
  *
  * ★ **LOAD TAPE is one of the ways to start**, not a decoration: the second
  * turbo block of the tape carries the loading screen and the remake loads
@@ -37,7 +38,9 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  *
  * The remake's defaults are the arrows, as in the sibling remakes, and
  * **every key comes from SETTINGS** — nothing is accepted beside the
- * configured keys, so the remap dialog always tells the truth.
+ * configured keys, so the remap dialog always tells the truth. The pause
+ * is the remake's Escape (and the gamepad's EXIT), not a key of SETTINGS
+ * (operator 2026-10-31).
  *
  * ★ The original keeps no score and no table of names: its panel shows the
  * time. The remake keeps the hall of fame the siblings have (ZADANI chap. 7).
@@ -113,6 +116,8 @@ export class GameApp extends AbstractApp {
     this.fonts.fonts5x5.addSpace('␣', {width: 2, breaking: false, stretch: true});
 
     this.fonts.zxFonts8x8.addGlyphs('‗⋅', '000000000000F8F80000000030000000');
+    // the cursor of PLAYER NAME's input, which is in the menu's font
+    this.fonts.zxFonts8x8Menu.addGlyphs('‗', '000000000000F8F8');
     // the 16 x 16 close cross of the panel button (GameInfoEntity.pauseButton):
     // a bold X, symmetric about both axes, in four 8 x 8 quarters — top left,
     // top right, bottom left, bottom right — set as two lines of two glyphs
@@ -123,8 +128,10 @@ export class GameApp extends AbstractApp {
     // ★ The original's four directions — the Kempston bits RIGHT, UP, DOWN
     // and LEFT, which every control choice comes down to ($FDF6,
     // hw_notes.md). On the isometric screen UP is up and to the right, DOWN
-    // down and to the left (the instructions). `Q` (CHEAT) and `SPACE`
-    // (pause) are fixed in the program; the remake maps them like the rest.
+    // down and to the left (the instructions). `Q` (CHEAT) is fixed in the
+    // program; the remake maps it like the rest. ★ `SPACE` pauses the
+    // original; the remake pauses on Escape, so SETTINGS has no PAUSE
+    // (operator 2026-10-31).
     this.controlsOptions = {
       keyboard: {
         device: 'keyboard',
@@ -134,8 +141,7 @@ export class GameApp extends AbstractApp {
           {action: 'up', label: 'UP'},
           {action: 'down', label: 'DOWN'},
           {action: 'cheat', label: 'CHEAT'},
-          {action: 'sounds', label: 'MUTE SOUNDS'},
-          {action: 'pause', label: 'PAUSE'}
+          {action: 'sounds', label: 'MUTE SOUNDS'}
         ]
       },
       gamepads: {
@@ -145,6 +151,9 @@ export class GameApp extends AbstractApp {
           {action: 'right', label: 'RIGHT', eventKey: 'GamepadRight'},
           {action: 'up', label: 'UP', eventKey: 'GamepadUp'},
           {action: 'down', label: 'DOWN', eventKey: 'GamepadDown'},
+          // ★ `Q` CHEAT of the original ($81EA) on a button of its own, set
+          // in SETTINGS (operator 2026-10-31)
+          {action: 'cheat', label: 'CHEAT', eventKey: 'GamepadCheat'},
           // the buttons of the menu, the dialogs and the tape loading listen
           // to GamepadOK (like manicminer, jetsetwilly)
           {action: 'ok', label: 'OK', eventKey: 'GamepadOK'},
@@ -215,6 +224,9 @@ export class GameApp extends AbstractApp {
     // ★ the state of the generator of the brothers' order the last game
     // left ($EE7F/$EE80, gameModel.js); null before the first game
     this.generatorSeed = null;
+    // the menu comes back from SHOW TAPE LOADING with its ball where it was
+    // (menuModel.js, gameWorker.js menuBall)
+    this.menuResume = false;
     this.player = 1;
     this.level = 0;
     this.playerName = Tool.readCookie('playerName', '');
@@ -233,10 +245,10 @@ export class GameApp extends AbstractApp {
         // The defaults of the remake: the arrows, as in the sibling remakes.
         // ★ The original's own keyboard is rows of keys (the top row of
         // letters UP, the middle one DOWN, every other key of the bottom row
-        // LEFT and RIGHT, hw_notes.md); ★ `Q` (CHEAT) and `SPACE` (pause) are
-        // the original's. `M` mutes, as in the siblings.
+        // LEFT and RIGHT, hw_notes.md); ★ `Q` (CHEAT) is the original's. `M`
+        // mutes, as in the siblings. The pause is Escape (gameModel.js)
         result = {left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp',
-                  down: 'ArrowDown', cheat: 'Q', sounds: 'M', pause: ' '};
+                  down: 'ArrowDown', cheat: 'Q', sounds: 'M'};
         break;
       case 'touchscreen':
         result = {supported: false, type: 'sticks'};

@@ -65,13 +65,39 @@ var MAX_CATCH_UP = 4;
 // (M6, physics.md §13) — a deviation like the pace itself: the original
 // has 1.5-2.2 frames a pass, the remake 1.5
 var FRAME_MS = 69888/3500;
+// the menu's steering to a click or a touch (steerToTarget): the middle of
+// the ball's sprite from its corner ($FDE8/$FDE9, 16 × 16 px), how near
+// is there (px), the passes without a move that end the column, how many
+// times a lost column is taken up again, the passes of an axis held
+// without speed that tell a wall, that speed (★ $8437: a free axis held
+// picks up 2 a pass), and the most passes a target is rolled to (≈ 10 s)
+// ★ the ball of the menu: its state ($FDE8-$FEEF, the run $71E9 clears on
+// the screen after a game) and the choice with the disc under it ($72D6,
+// $72DF) — what the menu keeps over SHOW TAPE LOADING (menuBall)
+var BALL_REGIONS = [[0xFDE8, 0xFEF0], [0x72D6, 0x72D7], [0x72DF, 0x72E0]];
+var STEER_BALL_CENTRE = 8;
+var STEER_TOLERANCE = 3;
+var STEER_STILL = 6;
+var STEER_RETURNS = 3;
+var STEER_STUCK = 3;
+var STEER_PICK_UP = 4;
+var STEER_MAX_PASSES = 300;
 
 var state = null;
+// the ball of the menu when the menu last went (menuBall): the menu comes
+// back with it after SHOW TAPE LOADING
+var menuBall = null;
 var timer = null;
 var lastTime = false;
 var accumulator = 0;
 
 function reset() {
+  if (state && state.menu && state.logic) {
+    menuBall = menuBall || {};
+    BALL_REGIONS.forEach((region) => {
+      menuBall[region[0]] = state.logic.mem.slice(region[0], region[1]);
+    });
+  }
   clearTimeout(timer);
   timer = null;
   lastTime = false;
@@ -87,6 +113,10 @@ function reset() {
     // ★ the original's four directions (the Kempston bits of $FDF6) and
     // `Q` CHEAT ($81EA)
     controls: {left: false, right: false, up: false, down: false, cheat: false},
+    // the remake's menu: the point the ball rolls to after a click or a
+    // touch (steerToTarget), or null, and whether it steered the last pass
+    target: null,
+    steered: false,
     // the seam for the source of randomness (none in the original)
     seed: null,
     // the port of the main loop over the original's memory
@@ -189,7 +219,11 @@ function frame(withScreen) {
     var disc = state.logic.mem[0x72DF];
     out.menu = {cell: state.logic.mem[0xFE2C], choice: state.logic.mem[0x72D6],
                 disc: disc >= 2 ? disc-2 : -1, taken: !!state.logic.choiceTaken,
-                start: state.outcome === 'start'};
+                start: state.outcome === 'start',
+                // ★ the ball's place on the screen ($FDE8 line, $FDE9 column of
+                // its sprite) and whether the pass rolled it to a target
+                ball: {x: state.logic.mem[0xFDE9], y: state.logic.mem[0xFDE8]},
+                steered: state.steered};
   }
   if (withScreen) {
     out.screen = state.screen;
@@ -287,6 +321,7 @@ function passDone(outcome) {
  * the menu), the ball rolls on. The menu is silent: no interrupts.
  */
 function menuTick() {
+  steerToTarget();
   try {
     state.outcome = state.logic.afterGamePass((port) => BobbyLogic.keyboardPort(port, state.controls, BobbyLogic.CURSOR_KEYS));
   } catch (error) {
@@ -300,6 +335,133 @@ function menuTick() {
   state.screen = toBase64(state.logic.screen());
   postMessage(frame(true));
 } // menuTick
+
+/**
+ * The remake's menu: the ball rolled to the point of a click or a touch by
+ * the four directions, as a player would hold them — the original's code
+ * does not know. ★ The directions go along the isometric axes (`$8427`:
+ * right/left the velocity `$FDFB` of `h` = `$FDF4`, down/up `$FDFA` of
+ * `l` = `$FDF3`) and the screen has the column `$79 + h − l` and the line
+ * `(h + l)/2 − height + $3F` (`$83A5`).
+ *
+ * The column comes first, then the line (operator 2026-10-31):
+ *
+ * - the column: right + up roll the ball →, left + down ← (when one axis is
+ *   against a wall the other one still moves it), until the place the ball
+ *   would stop at with the keys let go (stopDistance) is within
+ *   STEER_TOLERANCE of the point, or until the ball has not moved for
+ *   STEER_STILL passes; a column lost on the way (a wall stopped the drift)
+ *   goes back to it, at most STEER_RETURNS times;
+ * - the line: the column and the line give the place of each axis to stop
+ *   at, and each axis is held towards its own (its momentum from the column
+ *   counted), so the column stays. An axis held whose velocity does not
+ *   pick up for STEER_STUCK passes is against a wall (the strip of the
+ *   menu room goes diagonally): it is let go, and the other one goes where
+ *   it keeps the column — the line gives way.
+ */
+function steerToTarget() {
+  var t = state.target;
+  state.steered = false;
+  if (!t) {
+    return;
+  }
+  var mem = state.logic.mem;
+  var h = mem[0xFDF4], l = mem[0xFDF3];
+  // where each axis stops with the keys let go
+  var stopH = h+stopDistance(signed(mem[0xFDFB]));
+  var stopL = l+stopDistance(signed(mem[0xFDFA]));
+  var dx = t.x-(mem[0xFDE9]+STEER_BALL_CENTRE);
+  var dy = t.y-(mem[0xFDE8]+STEER_BALL_CENTRE);
+  var keys = {left: false, right: false, up: false, down: false};
+  t.passes++;
+  if (t.phase === 'column') {
+    var errorColumn = dx-(stopH-h)+(stopL-l);
+    t.still = h === t.h && l === t.l ? t.still+1 : 0;
+    if (Math.abs(errorColumn) <= STEER_TOLERANCE || t.still >= STEER_STILL) {
+      // the places of the axes to stop at: the column of the point, the
+      // line of the point (the height as it is now)
+      var sum = h+l+2*dy;
+      var diff = h-l+dx;
+      t.phase = 'line';
+      t.diff = diff;
+      t.toH = (sum+diff)/2;
+      t.toL = (sum-diff)/2;
+      t.stillH = t.stillL = 0;
+      t.heldH = t.heldL = false;
+      t.blockedH = t.blockedL = false;
+    } else {
+      keys.right = keys.up = errorColumn > 0;
+      keys.left = keys.down = errorColumn < 0;
+    }
+  }
+  if (t.phase === 'line' && t.returns < STEER_RETURNS
+      && Math.abs(dx-(stopH-h)+(stopL-l)) > 2*STEER_TOLERANCE) {
+    // the column the ball was to stop at did not come (a wall stopped the
+    // drift): the column again
+    t.phase = 'column';
+    t.returns++;
+    t.still = 0;
+    keys.right = keys.up = dx-(stopH-h)+(stopL-l) > 0;
+    keys.left = keys.down = !keys.right;
+  }
+  if (t.phase === 'line') {
+    t.stillH = t.heldH && Math.abs(signed(mem[0xFDFB])) < STEER_PICK_UP ? t.stillH+1 : 0;
+    t.stillL = t.heldL && Math.abs(signed(mem[0xFDFA])) < STEER_PICK_UP ? t.stillL+1 : 0;
+    if (t.stillH >= STEER_STUCK && !t.blockedH) {
+      t.blockedH = true;
+      t.toL = stopH-t.diff;
+    }
+    if (t.stillL >= STEER_STUCK && !t.blockedL) {
+      t.blockedL = true;
+      t.toH = stopL+t.diff;
+    }
+    var errorH = t.blockedH ? 0 : t.toH-stopH;
+    var errorL = t.blockedL ? 0 : t.toL-stopL;
+    if ((Math.abs(errorH) <= STEER_TOLERANCE && Math.abs(errorL) <= STEER_TOLERANCE)
+        || (t.blockedH && t.blockedL)) {
+      t.phase = 'done';
+    } else {
+      keys.right = errorH > STEER_TOLERANCE;
+      keys.left = errorH < -STEER_TOLERANCE;
+      keys.down = errorL > STEER_TOLERANCE;
+      keys.up = errorL < -STEER_TOLERANCE;
+      t.heldH = keys.right || keys.left;
+      t.heldL = keys.down || keys.up;
+    }
+  }
+  t.h = h;
+  t.l = l;
+  if (t.passes > STEER_MAX_PASSES) {
+    t.phase = 'done';
+  }
+  if (t.phase === 'done') {
+    state.target = null;
+    keys = {left: false, right: false, up: false, down: false};
+  }
+  Object.assign(state.controls, keys);
+  state.steered = state.target !== null;
+} // steerToTarget
+
+/** A velocity of the original as a signed number. */
+function signed(v) {
+  return v >= 0x80 ? v-0x100 : v;
+} // signed
+
+/**
+ * ★ How far an axis goes before it stops with no key held: `$8437` takes
+ * the velocity one towards 0 a pass, `$84DF` moves the position by a
+ * quarter of it, rounded towards zero (the slopes of the menu room are 0).
+ * @param {number} v - The signed velocity.
+ * @returns {number} The signed distance.
+ */
+function stopDistance(v) {
+  var sum = 0;
+  while (v !== 0) {
+    v += v > 0 ? -1 : 1;
+    sum += v > 0 ? v >> 2 : -((-v) >> 2);
+  }
+  return sum;
+} // stopDistance
 
 /**
  * ★ The interrupts of one pass (M6): as many as frames of the machine went
@@ -445,6 +607,12 @@ onmessage = function(event) {
           state.logic.mem[+address] = BobbyLogic.MENU_PATCH[address];
         });
         state.logic.afterGame();
+        if (initData.resume && menuBall) {
+          // the menu back after SHOW TAPE LOADING: the ball where it was
+          BALL_REGIONS.forEach((region) => {
+            state.logic.mem.set(menuBall[region[0]], region[0]);
+          });
+        }
         state.screen = toBase64(state.logic.screen());
         state.running = true;
         postMessage(frame(true));
@@ -475,11 +643,24 @@ onmessage = function(event) {
       break;
 
     case 'controls':
+      // a direction of the player's own takes over from a target
+      state.target = null;
       Object.keys(state.controls).forEach((key) => {
         if (key in message) {
           state.controls[key] = !!message[key];
         }
       });
+      break;
+
+    case 'target':
+      // the menu: the ball rolls to the point (x, y in pixels of the screen,
+      // steerToTarget); without them the target is dropped and the keys let go
+      if (state.menu && typeof message.x === 'number' && typeof message.y === 'number') {
+        state.target = {x: message.x, y: message.y, phase: 'column', passes: 0, h: -1, l: -1, still: 0, returns: 0};
+      } else if (state.target) {
+        state.target = null;
+        Object.assign(state.controls, {left: false, right: false, up: false, down: false});
+      }
       break;
 
     case 'pause':

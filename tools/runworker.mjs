@@ -31,7 +31,8 @@
  *   v místnosti `$1E` se šesti disky — snímek nese `menu` `{cell, choice,
  *   start}`, koule se valí klávesami CURSOR, dolů přejede všech šest disků
  *   `$42`–`$47`, volbu vezme až směr napříč pruhem (vlevo), vpravo dojede
- *   na šipku `$10` = start; menu je němé
+ *   na šipku `$10` = start; menu je němé; zpráva `target` (klik / dotyk)
+ *   dokoulí kouli k bodu do ±4 px a zastaví ji tam, směr hráče cíl zruší
  * - ovládání: stav dorazí celý, ★ čtyři směry originálu a `Q` CHEAT
  *   (`left`, `right`, `up`, `down`, `cheat`), neznámá klávesa (fire originál
  *   nemá) se zahodí
@@ -313,6 +314,45 @@ function main() {
   check(md.every((m) => !m.sounds.length), 'menu je němé');
   const menuStart = run({mode: 'menu'}, 40, false, {right: true});
   check(menuStart.messages.some((m) => m.menu.start && m.menu.cell === 0x10), 'menu: vpravo na šipku $10 = start');
+
+  // menu: klik / dotyk dokoulí kouli k bodu (gameWorker.js steerToTarget) —
+  // cíl je místo, kde koule zůstala po valení dolů přes disky
+  const centre = (m) => ({x: m.menu.ball.x+8, y: m.menu.ball.y+8});
+  const menuRest = run({mode: 'menu'}, 30, false, {down: true});
+  menuRest.worker.send({id: 'controls', left: false, right: false, up: false, down: false});
+  for (let step = 0; step < 40; step++) {
+    menuRest.worker.send({id: 'tick'});
+  }
+  const atRest = menuRest.messages[menuRest.messages.length-1];
+  const goal = centre(atRest);
+  const menuTarget = run({mode: 'menu'}, 0);
+  menuTarget.worker.send({id: 'target', x: goal.x, y: goal.y});
+  for (let step = 0; step < 200; step++) {
+    menuTarget.worker.send({id: 'tick'});
+  }
+  const mt = menuTarget.messages;
+  const reached = centre(mt[mt.length-1]);
+  check(mt.some((m) => m.menu.steered) && !mt[mt.length-1].menu.steered, 'menu: cíl koulí řídí a po dojetí se zahodí');
+  check(Math.abs(reached.x-goal.x) <= 4 && Math.abs(reached.y-goal.y) <= 4,
+        `menu: koule dojede k bodu dotyku (${reached.x},${reached.y} proti ${goal.x},${goal.y})`);
+  check(mt[mt.length-1].menu.cell === atRest.menu.cell, `menu: koule stojí na téže buňce ($${mt[mt.length-1].menu.cell.toString(16)} proti $${atRest.menu.cell.toString(16)})`);
+  check(mt.every((m) => !m.menu.taken || m.menu.steered), 'menu: disk vzatý cestou k cíli je jen ve snímcích s řízením');
+  menuTarget.worker.send({id: 'target', x: 0, y: 0});
+  menuTarget.worker.send({id: 'tick'});
+  menuTarget.worker.send({id: 'controls', left: false, right: false, up: false, down: true});
+  menuTarget.worker.send({id: 'tick'});
+  check(!mt[mt.length-1].menu.steered && mt[mt.length-1].controls.down, 'menu: směr hráče cíl zruší');
+
+  // menu: po SHOW TAPE LOADING (reset a init s resume) je koule, kde byla
+  const leftMenu = mt[mt.length-1].menu;
+  menuTarget.worker.send({id: 'reset'});
+  menuTarget.worker.send({id: 'init', initData: Object.assign({headless: true, mode: 'menu', resume: true}, DATA)});
+  const backMenu = mt[mt.length-1].menu;
+  check(backMenu.ball.x === leftMenu.ball.x && backMenu.ball.y === leftMenu.ball.y && backMenu.cell === leftMenu.cell,
+        `menu: init s resume vrátí kouli, kde byla (${backMenu.ball.x},${backMenu.ball.y} proti ${leftMenu.ball.x},${leftMenu.ball.y})`);
+  menuTarget.worker.send({id: 'reset'});
+  menuTarget.worker.send({id: 'init', initData: Object.assign({headless: true, mode: 'menu'}, DATA)});
+  check(mt[mt.length-1].menu.cell === 0, 'menu: init bez resume začne na startu');
 
   // ★ hra ze šipky menu ($7481): zvuk 6 hned s prvním snímkem
   const fromArrow = run({startSound: true}, 0);

@@ -259,12 +259,12 @@ export class GameModel extends AbstractModel {
         }
         switch (key) {
           // ★ The original pauses on `SPACE` ($73FC, a red border). The
-          // remake does too, and on Escape and a tab that loses focus, because
-          // a browser game has to stop somewhere; ? that the remake's pause
-          // shows a panel is the remake's until M5 reads the original's.
+          // remake pauses on Escape (the gamepad's EXIT) and a tab that loses
+          // focus, as all the remakes do — no key of SETTINGS (operator
+          // 2026-10-31); ? that the remake's pause shows a panel is the
+          // remake's until M5 reads the original's.
           case 'Escape':
           case 'GamepadExit':
-          case this.app.controls.keyboard.pause:
             this.pauseGame();
             return true;
           case 'Touch':
@@ -398,12 +398,13 @@ export class GameModel extends AbstractModel {
    * Maps a key or gamepad event onto a control action.
    *
    * The keyboard keys are **only** the configured ones (`app.controls.keyboard`
-   * — arrows and SPACE by default, remapped from SETTINGS); nothing is
+   * — the arrows, Q and M by default, remapped from SETTINGS); nothing is
    * accepted beside them, so a remapped key never keeps a hidden second
    * meaning. The gamepad keys are the fixed names the library gives its
    * buttons. The mouse is not a game control here. ★ The original's own
    * keyboard is rows of keys (hw_notes.md); whoever wants them sets them in
-   * SETTINGS.
+   * SETTINGS. CHEAT has a gamepad button of its own (GamepadCheat), set in
+   * SETTINGS too.
    * @param {string} key - The event key.
    * @returns {string|false} The action, or false.
    */
@@ -414,7 +415,7 @@ export class GameModel extends AbstractModel {
       case kb.right: case 'GamepadRight': return 'right';
       case kb.up: case 'GamepadUp': return 'up';
       case kb.down: case 'GamepadDown': return 'down';
-      case kb.cheat: return 'cheat';
+      case kb.cheat: case 'GamepadCheat': return 'cheat';
     }
     return false;
   } // controlAction

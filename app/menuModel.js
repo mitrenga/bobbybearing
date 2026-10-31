@@ -4,7 +4,6 @@ const { BorderEntity } = await import('./borderEntity.js?ver='+window.srcVersion
 const { TextEntity } = await import('./svision/js/platform/canvas2D/textEntity.js?ver='+window.srcVersion);
 const { ButtonEntity } = await import('./svision/js/platform/canvas2D/buttonEntity.js?ver='+window.srcVersion);
 const { ZXPlayerNameEntity } = await import('./svision/js/platform/canvas2D/zx/zxPlayerNameEntity.js?ver='+window.srcVersion);
-const { ZXVolumeEntity } = await import('./svision/js/platform/canvas2D/zx/zxVolumeEntity.js?ver='+window.srcVersion);
 const { ZXSettingsEntity } = await import('./svision/js/platform/canvas2D/zx/zxSettingsEntity.js?ver='+window.srcVersion);
 const { ZXWaitForAudioEventEntity } = await import('./svision/js/platform/canvas2D/zx/zxWaitForAudioEventEntity.js?ver='+window.srcVersion);
 const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?ver='+window.srcVersion);
@@ -16,6 +15,8 @@ const { ScreenComposer } = await import('./screenComposer.js?ver='+window.srcVer
 const { ScreenLayout } = await import('./screenLayout.js?ver='+window.srcVersion);
 const { HallOfFameEntity } = await import('./hallOfFameEntity.js?ver='+window.srcVersion);
 const { AboutEntity } = await import('./aboutEntity.js?ver='+window.srcVersion);
+const { FramedDialogEntity } = await import('./framedDialogEntity.js?ver='+window.srcVersion);
+const { ZXVolumeEntity } = await import('./svision/js/platform/canvas2D/zx/zxVolumeEntity.js?ver='+window.srcVersion);
 // begin code
 
 /**
@@ -49,13 +50,12 @@ export class MenuModel extends AbstractModel {
     super(app);
     this.id = 'MenuModel';
 
-    // the dialogs opened from the menu look like the ABOUT GAME panel
-    // (aboutEntity.js): a black window with the title in bright red. The
-    // contents come from svision and are laid out for 200 x 124 px; the
-    // window has no frame, only the title bar, so they get 192 x 117 — the
-    // right edge of the volume panel (MAX, +) and of the keyboard loses up to
-    // 6 px. It fills cells 4-27 in width, from y 50 down to 176. What is not
-    // set here is the default of ZXDialogProperties (the look of Manic Miner)
+    // the dialogs of svision opened from the menu (PLAYER NAME, SOUNDS,
+    // SETTINGS) are in the window of ABOUT GAME (openFramedDialog,
+    // framedDialogEntity.js) with the theme, the remap dialog and the gesture
+    // popup from here; x, y, width and height are where the panels go from
+    // (openPanel). What is not set here is the default of ZXDialogProperties
+    // (the look of Manic Miner)
     this.dialogProperties = ZXDialogProperties.merge({
       x: 32,
       y: 50,
@@ -74,33 +74,20 @@ export class MenuModel extends AbstractModel {
         separatorColor: ZXColor.brightWhite,
         iconColor: ZXColor.brightCyan,
         sliderColor: ZXColor.brightWhite,
-        keyboardButtonsBkColor: ZXColor.brightCyan,
-        // the default keyboard is 194 px wide, the panel 192: the rows are shifted
-        // by 7 instead of 9 and SPACE is 23 instead of 25, so the widest row is
-        // exactly 192. `update` merges `buttons` key by key (the other keys stay)
-        // and replaces `rows` whole
-        keyboardLayout: {
-          action: 'update',
-          options: {
-            rows: [{shiftX: 0}, {shiftX: 5}, {shiftX: 10}, {shiftX: 0}],
-            buttons: {
-              '⇧': {width: 19},
-              ' ': {width: 21}
-            }
-          }
-        }
+        // PLAYER NAME's prompt and input in the menu's font (gameApp.js
+        // zxFonts8x8Menu, operator 2026-10-31); the default ZX keyboard
+        // (194 px) fits the panel (222 px)
+        inputFont: 'zxFonts8x8Menu',
+        keyboardButtonsBkColor: ZXColor.brightCyan
       },
-      // the remap dialog covers the whole settings window, its title bar
-      // included: the contents start 9 px under the top of the window, so the
-      // dialog sits at -9 and the contents must not clip it. It looks like the
-      // settings window itself: no frame, black panel, the title in bright
-      // red, the same colours inside
-      clipsChildren: false,
+      // the remap dialog covers the contents of the SETTINGS panel
+      // (framedDialogEntity.js, the geometry left false): no frame, black
+      // panel, its title in bright red, the same colours inside
       remapKeys: {
-        x: 0,
-        y: -9,
-        width: 192,
-        height: 126,
+        x: false,
+        y: false,
+        width: false,
+        height: false,
         frameWidth: 0,
         titleColor: ZXColor.brightRed,
         bkColor: ZXColor.black,
@@ -124,8 +111,6 @@ export class MenuModel extends AbstractModel {
     this.versionEntity = null;
     // the logo of The Edge under BOBBY BEARING (a screen of its own)
     this.logoEntity = null;
-    // the window of the dialog open from the menu (openDialog), while it lasts
-    this.dialogEntity = null;
     // the game's own picture under the menu (GameAreaEntity.panelScreen)
     this.screenEntity = null;
     // the worker's screen of the menu room under the logo, the worker and
@@ -141,9 +126,13 @@ export class MenuModel extends AbstractModel {
     // the item of the disc under the ball in the last frame, or none: Enter
     // opens it as left or right on the disc does
     this.ballItem = null;
+    // back from SHOW TAPE LOADING (app.menuResume, once): the ball comes
+    // where it was and the hint has been read
+    this.resume = app.menuResume === true;
+    app.menuResume = false;
     // a direction pressed since the menu came: until then the place of the
     // item names shows how to choose (MenuModel.HINT)
-    this.ballMoved = false;
+    this.ballMoved = this.resume;
     this.worker = null;
     this.controlsState = {left: false, right: false, up: false, down: false};
     this.gameInfoEntity = null;
@@ -274,6 +263,8 @@ export class MenuModel extends AbstractModel {
         id: 'init',
         initData: {
           mode: 'menu',
+          // back from SHOW TAPE LOADING: the ball where it was
+          resume: this.resume,
           headless: false,
           world: files.world,
           memory: files.memory
@@ -321,7 +312,9 @@ export class MenuModel extends AbstractModel {
       var item = MenuModel.ITEMS[data.menu.disc];
       this.ballItem = item || null;
       this.showItem(item);
-      if (item && data.menu.taken && !this.discTaken && !this.desktopEntity.modalEntity) {
+      // a ball rolled to a click or a touch only stops on the disc: the
+      // direction it took the disc with was the worker's, not the player's
+      if (item && data.menu.taken && !data.menu.steered && !this.discTaken && !this.desktopEntity.modalEntity) {
         this.sendEvent(0, {id: item.event});
       }
       this.discTaken = data.menu.taken;
@@ -399,10 +392,35 @@ export class MenuModel extends AbstractModel {
     this.sendWorkerMessage(Object.assign({id: 'controls'}, this.controlsState));
   } // setControl
 
-  /** All directions let go: a dialog takes the keys, their release would not come. */
+  /**
+   * All directions let go and the ball's target dropped: a dialog takes the
+   * keys, their release would not come.
+   */
   releaseControls() {
     Object.keys(this.controlsState).forEach((action) => this.setControl(action, false));
+    this.sendWorkerMessage({id: 'target'});
   } // releaseControls
+
+  /**
+   * A click or a touch in the menu room: the ball rolls to it (the worker's
+   * steerToTarget — the column first, then the line), on a disc it only
+   * stops. A direction pressed takes over.
+   * @param {Object} event - The keyPress of Mouse1 or Touch (x, y).
+   * @returns {boolean} Whether the point is in the room.
+   */
+  rollBallTo(event) {
+    if (!this.roomEntity || this.desktopEntity.modalEntity || !this.roomEntity.pointOnEntity(event)) {
+      return false;
+    }
+    this.ballMoved = true;
+    this.showItem(this.ballItem || undefined);
+    this.sendWorkerMessage({
+      id: 'target',
+      x: event.x-this.roomEntity.parentX-this.roomEntity.x,
+      y: event.y-this.roomEntity.parentY-this.roomEntity.y+ScreenLayout.MENU_ROOM.row*8
+    });
+    return true;
+  } // rollBallTo
 
   /**
    * The direction a key stands for: the game's own controls (SETTINGS) and
@@ -457,32 +475,30 @@ export class MenuModel extends AbstractModel {
   } // showVersion
 
   /**
-   * Opens a dialog from the menu: the window with the title (ZXDialogEntity)
-   * over the middle of the screen, placed and coloured by the dialog
-   * properties, and the contents the factory makes for it, as the modal of
-   * the desktop.
-   * @param {string} title - The text of the title bar.
-   * @param {Function} contentFactory - Called with the window, returns the contents entity.
+   * A panel of the remake's own (HALL OF FAME, ABOUT GAME and the dialogs
+   * of openFramedDialog — framedPanelEntity.js) as a modal over the menu:
+   * the menu ticks it and turns on under it. All take the same place: 25 px
+   * left of the dialog properties' x, 13 px lower, 30 px wider and 3 px
+   * shorter (operator 2026-10-31), the frame round it.
+   * @param {Function} PanelEntity - HallOfFameEntity, AboutEntity or FramedDialogEntity.
+   * @param {...*} args - What the panel takes after its place and size.
    */
-  openDialog(title, contentFactory) {
+  openPanel(PanelEntity, ...args) {
     this.releaseControls();
     var p = this.dialogProperties;
-    this.dialogEntity = new ZXDialogEntity(this.desktopEntity, p.x, p.y, p.width, p.height, title, p, contentFactory);
-    this.desktopEntity.addModalEntity(this.dialogEntity);
-  } // openDialog
+    this.desktopEntity.addModalEntity(new PanelEntity(this.desktopEntity, p.x-25, p.y+13, p.width+30, p.height-3, ...args));
+  } // openPanel
 
   /**
-   * A panel of the remake's own (HALL OF FAME, ABOUT GAME — framedPanelEntity.js)
-   * as a modal over the menu: the menu ticks it and turns on under it. Both
-   * take the same place: 25 px left of the dialogs, 13 px lower, 30 px wider
-   * and 3 px shorter (operator 2026-10-31), the frame round it.
-   * @param {Function} PanelEntity - HallOfFameEntity or AboutEntity.
+   * A dialog of svision in the window of ABOUT GAME (framedDialogEntity.js):
+   * the panel of openPanel, the title on its frame, the contents the factory
+   * makes for it.
+   * @param {string} title - The heading on the frame.
+   * @param {Function} contentFactory - Called with the panel, returns the contents.
    */
-  openPanel(PanelEntity) {
-    this.releaseControls();
-    var p = this.dialogProperties;
-    this.desktopEntity.addModalEntity(new PanelEntity(this.desktopEntity, p.x-25, p.y+13, p.width+30, p.height-3));
-  } // openPanel
+  openFramedDialog(title, contentFactory) {
+    this.openPanel(FramedDialogEntity, title, contentFactory);
+  } // openFramedDialog
 
   /**
    * Asks for the browser's gesture for audio before an action that plays
@@ -497,11 +513,6 @@ export class MenuModel extends AbstractModel {
   } // openWaitForAudioEvent
 
   handleEvent(event) {
-    // the dialog's window closing — the desktop removes it in super.handleEvent
-    // and returns true, so it is forgotten before that
-    if (event.id == 'destroy' && event.entity === this.dialogEntity) {
-      this.dialogEntity = null;
-    }
     if (super.handleEvent(event)) {
       return true;
     }
@@ -510,7 +521,7 @@ export class MenuModel extends AbstractModel {
       case 'startGame':
         this.app.setPlayers(event.players);
         if (!this.app.playerName.length) {
-          this.openDialog('PLAYER NAME', (dialog) => new ZXPlayerNameEntity(dialog, dialog.innerX, dialog.innerY, dialog.innerWidth, dialog.innerHeight, true, this.dialogProperties));
+          this.openFramedDialog('PLAYER NAME', (panel) => new ZXPlayerNameEntity(panel, panel.innerX, panel.innerY, panel.innerWidth, panel.contentHeight, true, this.dialogProperties));
           return true;
         } else {
           if (this.app.inputEventsManager.needEventForAudio()) {
@@ -525,7 +536,7 @@ export class MenuModel extends AbstractModel {
         return true;
 
       case 'setPlayerName':
-        this.openDialog('PLAYER NAME', (dialog) => new ZXPlayerNameEntity(dialog, dialog.innerX, dialog.innerY, dialog.innerWidth, dialog.innerHeight, false, this.dialogProperties));
+        this.openFramedDialog('PLAYER NAME', (panel) => new ZXPlayerNameEntity(panel, panel.innerX, panel.innerY, panel.innerWidth, panel.contentHeight, false, this.dialogProperties));
         return true;
 
       case 'showHallOfFame':
@@ -536,13 +547,21 @@ export class MenuModel extends AbstractModel {
 
       case 'setSounds':
         // the sample is the game's room change (MenuModel.SAMPLE_EFFECT,
-        // rendered by the worker in init); the key click until it comes
+        // rendered by the worker in init), the key click until it comes; the
+        // popup of the gesture for audio (PLAY SAMPLE) in the middle of the panel
         var sample = this.app.audioManager && this.app.audioManager.samples.roomSound ? 'roomSound' : 'keyboardSound';
-        this.openDialog('SOUNDS', (dialog) => new ZXVolumeEntity(dialog, dialog.innerX, dialog.innerY, dialog.innerWidth, dialog.innerHeight, 'sounds', 'audioBusSoundsLevel', sample, this.dialogProperties));
+        this.openFramedDialog('SOUNDS', (panel) => {
+          var popup = this.dialogProperties.waitForAudioEvent;
+          var properties = Object.assign({}, this.dialogProperties, {waitForAudioEvent: Object.assign({}, popup, {
+            x: Math.floor((panel.innerWidth-popup.width)/2),
+            y: Math.floor((panel.contentHeight-popup.height)/2)
+          })});
+          return new ZXVolumeEntity(panel, panel.innerX, panel.innerY, panel.innerWidth, panel.contentHeight, 'sounds', 'audioBusSoundsLevel', sample, properties);
+        });
         return true;
 
       case 'setSettings':
-        this.openDialog('SETTINGS', (dialog) => new ZXSettingsEntity(dialog, dialog.innerX, dialog.innerY, dialog.innerWidth, dialog.innerHeight, this.app.controlsOptions, this.dialogProperties));
+        this.openFramedDialog('SETTINGS', (panel) => new ZXSettingsEntity(panel, panel.innerX, panel.innerY, panel.innerWidth, panel.contentHeight, this.app.controlsOptions, this.dialogProperties));
         return true;
 
       case 'startTapeLoading':
@@ -551,6 +570,8 @@ export class MenuModel extends AbstractModel {
           return true;
         }
       case 'startTapeLoading2':
+        // the menu comes back with the ball where it is now (the worker keeps it)
+        this.app.menuResume = true;
         this.app.setModel('TapeLoadingModel');
         return true;
 
@@ -577,6 +598,10 @@ export class MenuModel extends AbstractModel {
         // Enter (and the gamepad's OK) opens the item under the ball
         if ((event.key == 'Enter' || event.key == 'GamepadOK') && this.ballItem && !this.desktopEntity.modalEntity) {
           this.sendEvent(0, {id: this.ballItem.event});
+          return true;
+        }
+        // a click or a touch rolls the ball there
+        if ((event.key == 'Mouse1' || event.key == 'Touch') && this.rollBallTo(event)) {
           return true;
         }
       case 'keyRelease':
@@ -655,8 +680,8 @@ MenuModel.ITEMS = [
 /** the credit down the right edge of the menu, two lines */
 MenuModel.CREDIT = 'REMAKE BY L. MITRENGA\nCC BY-NC-SA 4.0';
 
-/** the text in the place of the item names until the first direction pressed */
-MenuModel.HINT = 'USE ARROWS TO SELECT';
+/** the text in the place of the item names until the first direction pressed or the first click */
+MenuModel.HINT = 'USE ARROWS OR TOUCH';
 
 /** the width of the version under BEARING in cells: v2026.10.29 and one spare */
 MenuModel.VERSION_CELLS = 12;
