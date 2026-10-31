@@ -13,9 +13,12 @@
  *
  * - **what the port reads before it writes it** (`app/bobbyLogic.js`): the
  *   new game, then every recording until it ends or stops at what is not
- *   ported, and the building of each of the 245 rooms with its entities —
- *   the variables, the tables, the font, the operands of the self-modifying
- *   code;
+ *   ported, the building of each of the 245 rooms with its entities, the
+ *   three ends of a game (`$7D06`: their texts `$749D`, `$7D5C`, `$F7DB`,
+ *   the brothers' balls on the panel …) and the remake's menu (the screen
+ *   after a game `$71BB` and its passes `$720C`, END_SCREENS, MENU_PASSES)
+ *   — the variables, the tables, the font, the texts, the operands of the
+ *   self-modifying code;
  * - the font with the brothers' names `$F80C`-`$FA27`, the sprites
  *   `$BA00`-`$C7FF`, the tables of the ball's physics `$CA12`-`$CBE6` and
  *   the tables of the sound effects `$FBF3`-`$FC93` (app/beeperPlayer.js),
@@ -69,6 +72,13 @@ const WHOLE = [[0xF80C, 0xFA28, 'font'], [0xBA00, 0xC800, 'sprites'],
                [0xEE48, 0xEE7F, 'brothers'],
                // ★ the one byte of ROM the game reads ($7E99, physics.md §10)
                [0x16A8, 0x16A9, 'rom']];
+// ★ the three ends of a game (`$7D06`): the text and the attribute each
+// calls it with — the time out ($7494), all home ($7D5C), one lost ($F7DB)
+const END_SCREENS = [[0x749D, 0x70, 'timeout'], [0x7D5C, 0x50, 'won'], [0xF7DB, 0x78, 'lost']];
+// the remake's menu (gameWorker.js mode 'menu'): passes of `$720C` with the
+// keys of CURSOR — down over the six discs, left on the last (a choice
+// taken), back up and right onto the arrow (the start)
+const MENU_PASSES = [[80, {down: true}], [10, {left: true}], [80, {up: true}], [40, {right: true}]];
 const ROOMS = 245;
 // ★ no exit leads to room $99, and its stream is the blocks' graphics
 // (sources/docs/world.md §6): its entities read code, not data
@@ -156,6 +166,30 @@ function main() {
     }
   }
 
+  // the ends of a game, each from a new game
+  for (const [text, attribute, outcome] of END_SCREENS) {
+    const logic = watched(Uint8Array.from(init), reads);
+    logic.newGame();
+    logic.endScreen(text, attribute, outcome);
+  }
+  // the remake's menu: room $1E with six discs (BobbyLogic.MENU_PATCH) and
+  // the screen after a game over it, then its passes
+  {
+    const logic = watched(Uint8Array.from(init), reads);
+    Object.keys(BobbyLogic.MENU_PATCH).forEach((address) => {
+      logic.wr(+address, BobbyLogic.MENU_PATCH[address]);
+    });
+    logic.afterGame();
+    for (const [count, controls] of MENU_PASSES) {
+      for (let i = 0; i < count; i++) {
+        logic.afterGamePass((port) => BobbyLogic.keyboardPort(port, controls, BobbyLogic.CURSOR_KEYS));
+        if (logic.outcome === 'start') {
+          break;
+        }
+      }
+    }
+  }
+
   const world = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/world.json'), 'utf8'));
   const inWorld = new Set();
   for (const region of Object.values(world.regions)) {
@@ -193,7 +227,8 @@ function main() {
   }
   fs.writeFileSync(path.join(ROOT, 'data/memory.json'), JSON.stringify({regions}, null, 1)+'\n');
   console.log(`data/memory.json: ${spans.length} úseků, ${bytes} B `
-              + `(${wanted.size} adres; ${passes} průchodů z ${names.length} záznamů, ${ROOMS-UNREACHABLE.length} místností)`);
+              + `(${wanted.size} adres; ${passes} průchodů z ${names.length} záznamů, ${ROOMS-UNREACHABLE.length} místností, `
+              + `${END_SCREENS.length} konce hry, menu)`);
   for (const [from, to] of spans) {
     console.log(`  $${hex(from)}–$${hex(to-1)}  ${to-from} B`);
   }

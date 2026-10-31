@@ -291,6 +291,37 @@ function main() {
   check(new Set(steps.map(digits)).size === steps.length, 'Q: číslice se každým snímkem srážky změní');
   check(held.length && rest(held[held.length-1]) !== rest(steps[0]), 'Q: snímek průchodu ukáže kouli na startu místnosti');
   check(qm[qm.length-1].pass > held[0].pass, 'Q: po srážce hra jede dál');
+  // ★ Q držené drží v originálu kouli omráčenou ($FE50 = 2 každý průchod)
+  // a srážka přijde až po puštění; remake čte Q jeden průchod za stisk, takže
+  // srážka přijde i s drženým Q. Q stisknuté během srážky se nevezme — ani
+  // puštěné v ní, ani držené přes její konec (cheatBlocked, operátor
+  // 2026-10-31); až po puštění a novém stisku
+  const deductions = (msgs) => msgs.filter((m, i) => i > 1 && m.pass === msgs[i-1].pass && msgs[i-1].pass !== msgs[i-2].pass).length;
+  const qKeys = (cheat) => ({id: 'controls', left: false, right: false, up: false, down: false, cheat: cheat});
+  const qAgain = run({}, 10, false, {cheat: true});
+  const qTicks = (n) => { for (let step = 0; step < n; step++) { qAgain.worker.send({id: 'tick'}); } };
+  qAgain.worker.send(qKeys(false));
+  qTicks(3);
+  qAgain.worker.send(qKeys(true));             // během srážky, puštěné v ní
+  qTicks(5);
+  qAgain.worker.send(qKeys(false));
+  qTicks(5);
+  qAgain.worker.send(qKeys(true));             // během srážky, držené přes konec
+  qTicks(60);
+  qAgain.worker.send(qKeys(false));
+  qTicks(20);
+  check(deductions(qAgain.messages) === 1, `Q stisknuté během srážky se nevezme (srážek ${deductions(qAgain.messages)})`);
+  qAgain.worker.send(qKeys(true));             // nový stisk po srážce
+  qTicks(3);
+  qAgain.worker.send(qKeys(false));
+  qTicks(60);
+  check(deductions(qAgain.messages) === 2, `Q po srážce puštěné a znovu stisknuté: další srážka (srážek ${deductions(qAgain.messages)})`);
+  // Q držené: srážka přijde bez puštění, jednou, a zvuk CHEAT (efekt 6)
+  // jednou za stisk, ne každý průchod
+  const qSound = run({}, 160, false, {cheat: true});
+  const cheatSounds = (msgs) => msgs.reduce((n, m) => n+(m.sounds || []).filter((e) => e.value === 6).length, 0);
+  check(deductions(qSound.messages) === 1, `Q držené 160 tiků: jedna srážka bez puštění (je ${deductions(qSound.messages)})`);
+  check(cheatSounds(qSound.messages) === 1, `Q držené: zvuk CHEAT jednou (je ${cheatSounds(qSound.messages)})`);
 
   // --- menu: obrazovka po hře originálu ($71BB) v místnosti $1E se šesti
   // disky (BobbyLogic.MENU_PATCH); koule se valí klávesami CURSOR
@@ -360,6 +391,40 @@ function main() {
   check(arrowSounds.some((s) => s.value === 6 && s.bus === 'game' && s.outs.length), 'start ze šipky: první snímek nese celý efekt 6 na sběrnici game');
   const noSound = run({}, 0);
   check(!(noSound.messages[0].sounds || []).length, 'start bez startSound je tichý');
+
+  // --- ★ konce hry ($7D06) a menu z dat jsou bajt po bajtu tytéž jako z paměti
+  // originálu (build/trace/newgame/start.bin): texty $749D, $7D5C, $F7DB jsou
+  // v data/memory.json (tools/mkmemory.mjs END_SCREENS, MENU_PASSES)
+  const Logic = vm.runInContext('BobbyLogic', worker.context);
+  const original = fs.readFileSync(path.join(ROOT, 'build/trace/newgame/start.bin'));
+  const fromData = () => Logic.composeMemory(DATA.world, DATA.memory);
+  // a Uint8Array of the worker's realm: BobbyLogic checks it with instanceof
+  const fromOriginal = () => vm.runInContext('Uint8Array', worker.context).from(original);
+  const endScreen = (memory, end) => {
+    const logic = new Logic(memory);
+    logic.newGame();
+    logic.endScreen(end[0], end[1], end[2]);
+    return logic.screen();
+  };
+  for (const end of [[0x749D, 0x70, 'timeout'], [0x7D5C, 0x50, 'won'], [0xF7DB, 0x78, 'lost']]) {
+    check(same(endScreen(fromData(), end), endScreen(fromOriginal(), end)), `konec ${end[2]}: obrazovka z dat = z paměti originálu`);
+  }
+  const menuScreens = (memory) => {
+    const logic = new Logic(memory);
+    Object.keys(Logic.MENU_PATCH).forEach((address) => { logic.mem[+address] = Logic.MENU_PATCH[address]; });
+    logic.afterGame();
+    const screens = [logic.screen().slice()];
+    for (const [count, controls] of [[80, {down: true}], [10, {left: true}], [80, {up: true}], [40, {right: true}]]) {
+      for (let i = 0; i < count && logic.outcome !== 'start'; i++) {
+        logic.afterGamePass((port) => Logic.keyboardPort(port, controls, Logic.CURSOR_KEYS));
+        screens.push(logic.screen().slice());
+      }
+    }
+    return screens;
+  };
+  const menuData = menuScreens(fromData()), menuOriginal = menuScreens(fromOriginal());
+  check(menuData.length === menuOriginal.length && menuData.every((screen, i) => same(screen, menuOriginal[i])),
+        `menu: ${menuData.length} obrazovek z dat = z paměti originálu`);
 
   // --- reset v headless režimu zastaví tikání
   const before = messages.length;
