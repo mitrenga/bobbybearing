@@ -17,3 +17,7 @@ ZADANI.md
 *.z80
 *.rzx
 *.tzx
+
+# test flight (tools/mkflight.mjs): jen lokálně
+/testFlightPage.php
+/testFlight.json

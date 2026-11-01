@@ -60,6 +60,11 @@ if (typeof importScripts === 'function') {
 // ZADANI chap. 2, ScreenLayout.PASS_MS
 var PASS_MS = 35;
 var MAX_CATCH_UP = 4;
+// the runs of a test flight: printable ASCII without the digits (the count
+// of a run follows its character), the space, `"` and `\` — 82 values
+// (tools/mkflight.mjs ALPHABET)
+var FLIGHT_ALPHABET = Array.from({length: 94}, (_, i) => String.fromCharCode(33+i))
+  .filter((c) => !/[0-9"\\]/.test(c)).join('');
 // ★ the ULA interrupt every 69 888 T = 19.968 ms: the sound handler runs
 // once a frame of the machine, so a pass of PASS_MS gets one or two of them
 // (M6, physics.md §13) — a deviation like the pace itself: the original
@@ -131,6 +136,8 @@ function reset() {
     steered: false,
     // the seam for the source of randomness (none in the original)
     seed: null,
+    // the test flight (decodeFlight), or null
+    flight: null,
     // the port of the main loop over the original's memory
     logic: null,
     // why the game stopped (a place not ported yet), or null
@@ -206,6 +213,34 @@ function score() {
 } // score
 
 /**
+ * The test flight of `init` (tools/mkflight.mjs) for tick(): its runs (a
+ * character of FLIGHT_ALPHABET = a value, then the count of passes in
+ * decimal, none for 1) spread into one value a pass — `runs` indexes into
+ * `table`, `interrupts` the interrupts of the pass.
+ * @param {Object} flight - {table, runs, interrupts, speed, …}.
+ * @returns {Object} {table, passes: Uint8Array, interrupts: Uint8Array, speed}.
+ */
+function decodeFlight(flight) {
+  var spread = (runs) => {
+    var values = [];
+    var at = 0;
+    while (at < runs.length) {
+      var value = FLIGHT_ALPHABET.indexOf(runs[at++]);
+      var digits = '';
+      while (at < runs.length && runs[at] >= '0' && runs[at] <= '9') {
+        digits += runs[at++];
+      }
+      for (var n = digits ? +digits : 1; n > 0; n--) {
+        values.push(value);
+      }
+    }
+    return Uint8Array.from(values);
+  };
+  return {table: flight.table, passes: spread(flight.runs), interrupts: spread(flight.interrupts),
+          speed: Math.max(1, flight.speed || 1)};
+} // decodeFlight
+
+/**
  * The 'frame' message: what the model draws and counts.
  * @param {boolean} withScreen - Whether the screen goes with it.
  */
@@ -219,7 +254,8 @@ function frame(withScreen) {
     // $7CE5), 'lost' (home with one lost), 'timeout' ($7494), 'quit'
     outcome: state.outcome,
     controls: Object.assign({}, state.controls),
-    sounds: state.sounds,
+    // a test flight played faster is silent
+    sounds: state.flight && state.flight.speed > 1 ? [] : state.sounds,
     // M7: the remake's three numbers (score())
     score: Object.assign({}, state.score),
     // ★ the state of the generator of the brothers' order ($EE7F/$EE80):
@@ -274,7 +310,16 @@ function tick() {
     if (controls.cheat) {
       state.cheatBlocked = true;
     }
-    outcome = state.logic.pass((port) => BobbyLogic.keyboardPort(port, controls));
+    var flight = state.flight;
+    var counted;
+    if (flight && state.pass < flight.passes.length) {
+      // ★ the test flight: what the original's IN read in this pass, and
+      // the interrupts the recording had in it
+      outcome = state.logic.pass(flight.table[flight.passes[state.pass]]);
+      counted = flight.interrupts[state.pass];
+    } else {
+      outcome = state.logic.pass((port) => BobbyLogic.keyboardPort(port, controls));
+    }
   } catch (error) {
     state.stopped = error.message;
     state.running = false;
@@ -283,7 +328,7 @@ function tick() {
     return;
   }
   state.pass++;
-  interrupts();
+  interrupts(counted);
   score();
   state.screen = toBase64(state.logic.screen());
   var log = state.logic.timeLog;
@@ -324,7 +369,8 @@ function countdownStep() {
   var screen = c.log.screen.slice();
   BobbyLogic.putTimeDigits(screen, c.log.digits[Math.floor(c.step*c.log.digits.length/(c.steps+1))-1]
                                    || c.log.digits[0]);
-  interrupts();
+  // a test flight's pass had all its interrupts already
+  interrupts(state.flight && state.pass <= state.flight.passes.length ? 0 : undefined);
   var out = frame(false);
   out.screen = toBase64(screen);
   post(out);
@@ -507,14 +553,26 @@ function stopDistance(v) {
  * bus by the part of the game that asked (BobbyLogic.soundRequest), and the model
  * starts it with one message — the sound then plays beside the game and
  * neither the worker nor the drawing loop has a hand in its timing.
+ *
+ * ★ A test flight gives the count of its recording instead: the handler
+ * takes a fourth channel and on over `$F081`- (the chasing ball, the texts)
+ * when three are busy, so the cadence of the interrupts reaches the game
+ * (BeeperPlayer.freeChannel).
+ * @param {number} [count] - The interrupts of this pass, else by PASS_MS.
  */
-function interrupts() {
+function interrupts(count) {
   if (!state.beeper) {
     return;
   }
-  state.frameDebt += PASS_MS;
-  while (state.frameDebt >= FRAME_MS) {
-    state.frameDebt -= FRAME_MS;
+  if (typeof count !== 'number') {
+    state.frameDebt += PASS_MS;
+    count = 0;
+    while (state.frameDebt >= FRAME_MS) {
+      state.frameDebt -= FRAME_MS;
+      count++;
+    }
+  }
+  for (; count > 0; count--) {
     if (state.lostFrames > 0) {
       state.lostFrames--;
       continue;
@@ -584,6 +642,10 @@ function schedule() {
   if (lastTime === false) {
     lastTime = Date.now();
   }
+  // a test flight may go faster (as jetsetwilly's): the loop itself ticks
+  // speed times as often
+  var speed = state.flight ? state.flight.speed : 1;
+  var passMs = PASS_MS/speed, catchUp = MAX_CATCH_UP*speed;
   timer = setTimeout(() => {
     // the message handler may have stopped the clock in the meantime
     if (timer === null) {
@@ -593,16 +655,16 @@ function schedule() {
     accumulator += now-lastTime;
     lastTime = now;
     // catch up rather than drift, but never run away with it after a stall
-    var steps = Math.min(Math.floor(accumulator/PASS_MS), MAX_CATCH_UP);
-    accumulator -= steps*PASS_MS;
-    if (accumulator > MAX_CATCH_UP*PASS_MS) {
+    var steps = Math.min(Math.floor(accumulator/passMs), catchUp);
+    accumulator -= steps*passMs;
+    if (accumulator > catchUp*passMs) {
       accumulator = 0;
     }
     for (var step = 0; step < steps && state.running; step++) {
       tick();
     }
     schedule();
-  }, PASS_MS);
+  }, passMs);
 } // schedule
 
 function stopClock() {
@@ -651,13 +713,21 @@ onmessage = function(event) {
       }
       state.beeper = new BeeperPlayer(state.logic.mem);
       state.seed = typeof initData.seed === 'number' ? initData.seed : null;
+      if (initData.flight) {
+        // ★ the test flight starts as its recording did: the generator and
+        // the choice of controls ($FEE7) the only bytes it differs in from
+        // data/memory.json (tools/mkflight.mjs)
+        state.flight = decodeFlight(initData.flight);
+        state.seed = initData.flight.seed;
+        state.logic.mem[0xFEE7] = initData.flight.controls;
+      }
       if (state.seed !== null) {
         // ★ into the generator of the brothers' order before the draw ($F260)
         state.logic.mem[0xEE7F] = state.seed & 0xFF;
         state.logic.mem[0xEE80] = (state.seed >> 8) & 0xFF;
       }
       state.logic.newGame();
-      if (initData.startSound) {
+      if (initData.startSound && !state.flight) {
         // ★ the game started from the screen after a game, the ball on the
         // arrow ($7481): the request of sound 6 before $74CC → $7D87. The
         // original's interrupt takes it while the room is being built, so

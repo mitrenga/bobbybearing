@@ -505,6 +505,42 @@ function main() {
   clocked.advance(1000);
   check(live.length === afterReset, 'po reset už nic netiká');
 
+  // --- ★ test flight (tools/mkflight.mjs, testFlightPage.php): celá partie
+  // z RZX dojede ve workeru do konce originálu
+  const FLIGHT = path.join(ROOT, 'testFlight.json');
+  if (fs.existsSync(FLIGHT)) {
+    const flight = JSON.parse(fs.readFileSync(FLIGHT, 'utf8'));
+    let last = null, stopped = null, frames = 0, sounds = 0;
+    const flyer = startWorker((message) => {
+      if (message.id === 'stopped') { stopped = message; }
+      if (message.id === 'frame') { frames++; last = {pass: message.pass, outcome: message.outcome}; }
+    });
+    flyer.send({id: 'init', initData: Object.assign({headless: true}, DATA, {flight: flight, seed: 0x1234})});
+    // tiky odpočtu času (countdownStep) průchod nedělají
+    for (let i = 0; i < 2*flight.passes && !stopped && (!last || last.outcome === 'pass'); i++) {
+      flyer.send({id: 'tick'});
+    }
+    check(!stopped, `test flight: hra se nezastavila (${stopped ? stopped.message : ''})`);
+    check(last && last.pass === flight.passes && last.outcome === flight.outcome,
+          `test flight: ${flight.passes} průchodů → ${flight.outcome} (je ${last && last.pass} → ${last && last.outcome})`);
+    // zrychlení: speed × víc průchodů za vteřinu, bez zvuku
+    const fast = [];
+    const quick = startWorker((message) => fast.push(message));
+    quick.send({id: 'init', initData: Object.assign({headless: false}, DATA, {flight: Object.assign({}, flight, {speed: 8})})});
+    quick.advance(1000);
+    sounds = fast.reduce((n, m) => n+((m.sounds || []).length), 0);
+    check(Math.abs(fast[fast.length-1].pass-8*1000/TICK_MS) <= 8,
+          `test flight se speed 8: ${Math.floor(8*1000/TICK_MS)} průchodů za vteřinu (je ${fast[fast.length-1].pass})`);
+    check(sounds === 0, `test flight se speed 8 je němý (zvuků ${sounds})`);
+    // jako jetsetwilly: zrychlí se smyčka sama, ne dávky průchodů
+    const next = quick.clock.timers.length ? quick.clock.timers[0].at-quick.clock.now : -1;
+    check(next >= 0 && next <= TICK_MS/8, `test flight se speed 8: časovač po ${TICK_MS/8} ms (je ${next})`);
+    quick.send({id: 'reset'});
+    console.log(`  test flight: ${flight.source}, ${last && last.pass} průchodů → ${last && last.outcome}`);
+  } else {
+    console.log('  test flight: chybí testFlight.json (./tools/mkflight.mjs) — přeskočeno');
+  }
+
   console.log(`${checks} kontrol, **${failures} chyb**`);
   process.exit(failures ? 1 : 0);
 }

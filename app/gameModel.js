@@ -6,6 +6,7 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
 const { ScreenComposer } = await import('./screenComposer.js?ver='+window.srcVersion);
 const { GameAreaEntity } = await import('./gameAreaEntity.js?ver='+window.srcVersion);
 const { AudioManager } = await import('./audioManager.js?ver='+window.srcVersion);
+const { SpriteTool } = await import('./svision/js/spriteTool.js?ver='+window.srcVersion);
 // begin code
 
 /**
@@ -130,6 +131,9 @@ export class GameModel extends AbstractModel {
 
     this.worker = this.app.worker;
     this.app.inputEventsManager.sendEventsActiveKeys('Press');
+    // the test flight (testFlightPage.php): its script sets this.flight
+    this.flight = null;
+    SpriteTool.scriptedSprite(this, this.app.appIconSprite);
     this.app.startWorkerSession({
       headless: false,
       hiScore: this.app.hiScore,
@@ -147,7 +151,9 @@ export class GameModel extends AbstractModel {
       seed: typeof this.app.generatorSeed === 'number' ? this.app.generatorSeed : (Date.now() & 0xFFFF),
       // ★ the menu is the original's screen after a game and the game
       // starts from its arrow ($7481), which asks for sound 6
-      startSound: true
+      startSound: true,
+      // a game of a recording played by itself (tools/mkflight.mjs), or null
+      flight: this.flight
     });
   } // initData
 
