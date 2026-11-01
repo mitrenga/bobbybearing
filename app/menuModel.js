@@ -259,16 +259,13 @@ export class MenuModel extends AbstractModel {
       var creditWidth = 2*font.charsHeight+font.lineSpacing;
       this.desktopEntity.addEntity(new TextEntity(this.desktopEntity, font, this.desktopWidth-creditWidth, creditY, creditWidth, this.desktopHeight-creditY, MenuModel.CREDIT, ZXColor.white, false, {align: 'left', rotation: 270}));
       this.worker = this.app.worker;
-      this.sendWorkerMessage({
-        id: 'init',
-        initData: {
-          mode: 'menu',
-          // back from SHOW TAPE LOADING: the ball where it was
-          resume: this.resume,
-          headless: false,
-          world: files.world,
-          memory: files.memory
-        }
+      this.app.startWorkerSession({
+        mode: 'menu',
+        // back from SHOW TAPE LOADING: the ball where it was
+        resume: this.resume,
+        headless: false,
+        world: files.world,
+        memory: files.memory
       });
       // ★ the sample of SOUNDS: the room change (effect 5, $7856) rendered
       // by the worker over the original's tables

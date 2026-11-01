@@ -90,6 +90,17 @@ var menuBall = null;
 var timer = null;
 var lastTime = false;
 var accumulator = 0;
+// the number the model gave the last `init` (WORKER-PROTOCOL.md), or null
+// after a reset: every message carries it, so that the app drops what a
+// model that went sent before the next one's init (a frame of the menu with
+// the ball on the arrow ended the new game at once, 2026-11-01)
+var session = null;
+
+/** A message to the model, with the number of the session. */
+function post(message) {
+  message.session = session;
+  postMessage(message);
+} // post
 
 function reset() {
   if (state && state.menu && state.logic) {
@@ -102,6 +113,7 @@ function reset() {
   timer = null;
   lastTime = false;
   accumulator = 0;
+  session = null;
   state = {
     running: false, paused: false, headless: false,
     // the remake's menu: the original's screen after a game ($71BB) in the
@@ -267,7 +279,7 @@ function tick() {
     state.stopped = error.message;
     state.running = false;
     stopClock();
-    postMessage({id: 'stopped', pass: state.pass, message: error.message});
+    post({id: 'stopped', pass: state.pass, message: error.message});
     return;
   }
   state.pass++;
@@ -315,7 +327,7 @@ function countdownStep() {
   interrupts();
   var out = frame(false);
   out.screen = toBase64(screen);
-  postMessage(out);
+  post(out);
 } // countdownStep
 
 /** The frame of a pass out; a game that ended stops the clock. */
@@ -327,7 +339,7 @@ function passDone(outcome) {
     stopClock();
     state.outcome = outcome;
   }
-  postMessage(frame(true));
+  post(frame(true));
 } // passDone
 
 /**
@@ -345,12 +357,12 @@ function menuTick() {
     state.stopped = error.message;
     state.running = false;
     stopClock();
-    postMessage({id: 'stopped', pass: state.pass, message: error.message});
+    post({id: 'stopped', pass: state.pass, message: error.message});
     return;
   }
   state.pass++;
   state.screen = toBase64(state.logic.screen());
-  postMessage(frame(true));
+  post(frame(true));
 } // menuTick
 
 /**
@@ -605,11 +617,12 @@ onmessage = function(event) {
 
     case 'init':
       reset();
+      session = typeof message.session === 'number' ? message.session : null;
       var initData = message.initData || {};
       state.headless = !!initData.headless;
       state.hiScore = initData.hiScore || 0;
       if (!initData.world || !initData.world.regions || !initData.memory || !initData.memory.regions) {
-        postMessage({id: 'error', message: 'game data missing (data/world.json, data/memory.json)'});
+        post({id: 'error', message: 'game data missing (data/world.json, data/memory.json)'});
         return;
       }
       // ★ the memory of the menu the moment `0` starts a game ($74F3); the
@@ -632,7 +645,7 @@ onmessage = function(event) {
         }
         state.screen = toBase64(state.logic.screen());
         state.running = true;
-        postMessage(frame(true));
+        post(frame(true));
         schedule();
         break;
       }
@@ -655,7 +668,7 @@ onmessage = function(event) {
       }
       state.screen = toBase64(state.logic.screen());
       state.running = true;
-      postMessage(frame(true));
+      post(frame(true));
       schedule();
       break;
 
@@ -697,7 +710,7 @@ onmessage = function(event) {
         state.running = false;
         stopClock();
         state.outcome = 'quit';
-        postMessage(frame(true));
+        post(frame(true));
       }
       break;
 
@@ -720,7 +733,7 @@ onmessage = function(event) {
       // SOUNDS): the same edges a request of it gives in the game
       if (state.logic) {
         var effect = renderEffect(message.value);
-        postMessage({id: 'effect', value: message.value, outs: effect.outs, length: effect.length});
+        post({id: 'effect', value: message.value, outs: effect.outs, length: effect.length});
       }
       break;
 

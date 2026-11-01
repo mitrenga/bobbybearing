@@ -130,27 +130,24 @@ export class GameModel extends AbstractModel {
 
     this.worker = this.app.worker;
     this.app.inputEventsManager.sendEventsActiveKeys('Press');
-    this.sendWorkerMessage({
-      id: 'init',
-      initData: {
-        headless: false,
-        hiScore: this.app.hiScore,
-        // ★ the rooms out of the program's data (tools/dumpworld.py,
-        // sources/docs/world.md)
-        world: files.world,
-        // ★ the rest of the original's memory at the start of a game
-        // (tools/mkmemory.mjs): the port of the main loop runs over it
-        memory: files.memory,
-        // ★ the one randomness of the original is the state of the
-        // generator of the brothers' order ($EE7F/$EE80), what the last
-        // game left in memory: the first game gets the clock (outside the
-        // simulation), every next one the state the last game ended with
-        // (operator 2026-10-30, WORKER-PROTOCOL.md)
-        seed: typeof this.app.generatorSeed === 'number' ? this.app.generatorSeed : (Date.now() & 0xFFFF),
-        // ★ the menu is the original's screen after a game and the game
-        // starts from its arrow ($7481), which asks for sound 6
-        startSound: true
-      }
+    this.app.startWorkerSession({
+      headless: false,
+      hiScore: this.app.hiScore,
+      // ★ the rooms out of the program's data (tools/dumpworld.py,
+      // sources/docs/world.md)
+      world: files.world,
+      // ★ the rest of the original's memory at the start of a game
+      // (tools/mkmemory.mjs): the port of the main loop runs over it
+      memory: files.memory,
+      // ★ the one randomness of the original is the state of the
+      // generator of the brothers' order ($EE7F/$EE80), what the last
+      // game left in memory: the first game gets the clock (outside the
+      // simulation), every next one the state the last game ended with
+      // (operator 2026-10-30, WORKER-PROTOCOL.md)
+      seed: typeof this.app.generatorSeed === 'number' ? this.app.generatorSeed : (Date.now() & 0xFFFF),
+      // ★ the menu is the original's screen after a game and the game
+      // starts from its arrow ($7481), which asks for sound 6
+      startSound: true
     });
   } // initData
 
@@ -357,6 +354,10 @@ export class GameModel extends AbstractModel {
     var data = event.data;
     switch (data.id) {
       case 'frame':
+        if (data.menu) {
+          // a frame of the menu is not the game's (gameApp.js workerSession)
+          break;
+        }
         this.fps.workerFrames++;
         // R-045: the third number is read off the counter the message
         // carries, not counted here
@@ -373,7 +374,7 @@ export class GameModel extends AbstractModel {
           // the seed of the next game: the generator as this one leaves it
           this.app.generatorSeed = data.generator;
         }
-        if (data.outcome && data.outcome !== 'pass' && !this.gameOver) {
+        if (GameModel.END_OUTCOMES.indexOf(data.outcome) >= 0 && !this.gameOver) {
           // ★ the game ended on the original's end screen ($7D06): the
           // remake's score goes over it (GameOverModel, operator 2026-10-31)
           this.gameOver = true;
@@ -629,3 +630,10 @@ export class GameModel extends AbstractModel {
   } // loopModel
 
 } // GameModel
+
+/**
+ * ★ The ways the game ends (gameWorker.js frame, M5): all brothers home,
+ * home with one lost, the time out, EXIT GAME — any other outcome (the menu's
+ * 'start') ends nothing.
+ */
+GameModel.END_OUTCOMES = ['won', 'lost', 'timeout', 'quit'];

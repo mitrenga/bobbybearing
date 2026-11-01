@@ -57,8 +57,13 @@ export class GameApp extends AbstractApp {
     super(platform, 'bodyApp', importPath, wsURL);
 
     this.worker = new Worker(this.importPath+'/gameWorker.js?ver='+window.srcVersion);
+    // the number of the worker's last init (startWorkerSession): a message
+    // of another goes nowhere — the menu's frames already on the way when
+    // the ball on the arrow starts the game reached the game, and one with
+    // the ball still on the arrow (outcome 'start') ended it (2026-11-01)
+    this.workerSession = 0;
     this.worker.onmessage = (event) => {
-      if (this.model) {
+      if (this.model && event.data.session === this.workerSession) {
         this.model.handleWorkerMessage(event);
       }
     };
@@ -308,6 +313,17 @@ export class GameApp extends AbstractApp {
     return result;
   } // getControls
 
+  /**
+   * The worker's `init` for a model (the menu, the game): a new number of
+   * the session goes with it, and from then on only the messages carrying
+   * it reach the model (WORKER-PROTOCOL.md).
+   * @param {Object} initData - The `initData` of the message.
+   */
+  startWorkerSession(initData) {
+    this.workerSession++;
+    this.worker.postMessage({id: 'init', session: this.workerSession, initData: initData});
+  } // startWorkerSession
+
   setModel(model) {
     if (model == 'MenuModel' && this.globalData === false) {
       // the fetch may still be pending or has failed: as a last resort try the
@@ -318,6 +334,9 @@ export class GameApp extends AbstractApp {
       }
     }
     var needResizeApp = false;
+    // the messages of the model that goes go nowhere, also before the next
+    // one's init (it may wait for its data files)
+    this.workerSession++;
     if (this.model) {
       this.model.shutdown();
       needResizeApp = true;

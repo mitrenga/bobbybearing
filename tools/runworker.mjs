@@ -173,6 +173,27 @@ function main() {
   check(last.pass === frames && last.frame === frames, `počítadlo průchodů je ${frames} (je ${last.pass})`);
   check(messages.slice(1).every((m) => m.screen), 'každý průchod posílá obrazovku');
 
+  // --- číslo relace: zprávy nesou číslo posledního init, reset ho shodí
+  // (gameApp.js workerSession — snímek menu s koulí na šipce ukončil novou hru)
+  {
+    const got = [];
+    const w = startWorker((message) => got.push(message));
+    check(got.length === 0, 'worker bez init nic neposílá');
+    w.send({id: 'init', session: 7, initData: Object.assign({headless: true, mode: 'menu'}, DATA)});
+    w.send({id: 'tick'});
+    w.send({id: 'renderEffect', value: 5});
+    check(got.length === 3 && got.every((m) => m.session === 7), 'snímky menu i effect nesou číslo relace z init (7)');
+    w.send({id: 'reset'});
+    w.send({id: 'tick'});
+    check(got.length === 3, 'po reset worker nic neposílá');
+    w.send({id: 'init', session: 8, initData: Object.assign({headless: true}, DATA)});
+    w.send({id: 'tick'});
+    check(got.length === 5 && got.slice(3).every((m) => m.session === 8 && !m.menu), 'hra po menu nese nové číslo (8) a žádný snímek menu');
+    const bare = [];
+    startWorker((message) => bare.push(message)).send({id: 'init', initData: Object.assign({headless: true}, DATA)});
+    check(bare.length === 1 && bare[0].session === null, 'init bez čísla relace = session null');
+  }
+
   // --- hra originálu: bez kláves obrazovka po každém průchodu jako v idle
   const {inputs} = JSON.parse(fs.readFileSync(path.join(IDLE, 'inputs.json'), 'utf8'));
   const idle = run({}, inputs.length).messages;

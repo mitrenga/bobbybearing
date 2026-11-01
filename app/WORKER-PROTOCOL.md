@@ -33,11 +33,22 @@ za průchod (`$7404`), takže délka hry vyjde jako průměr originálu.
 Worker tiká **rekurzivním `setTimeout` s akumulátorem** (R-046,
 `setInterval` nikde), nejvýš čtyři průchody naráz po výpadku.
 
+**Číslo relace** (2026-11-01): `init` nese `session` (číslo, které dává
+`gameApp.js startWorkerSession`) a worker ho vrací v **každé** zprávě
+(`session`, po `reset` a bez čísla v `init` `null`). Aplikace předá modelu jen
+zprávy s číslem poslední relace a při změně modelu číslo zvedne hned, ještě
+před `init` dalšího modelu. Důvod: jeden worker slouží menu i hře a snímky
+menu, které byly na cestě, když koule na šipce spustila hru, docházely do
+nového `GameModel`; snímek s koulí pořád na šipce (`outcome: 'start'`) hru
+hned ukončil a pod GAME OVER byla scéna menu. `GameModel` navíc končí hru jen
+na `won`, `lost`, `timeout`, `quit` (`END_OUTCOMES`) a snímky s `menu`
+přeskočí.
+
 ## Model → worker
 
 | zpráva | pole | význam |
 |---|---|---|
-| `init` | `initData: {headless, world, memory, seed, hiScore}` | start nové hry: ★ paměť menu z dat a `BobbyLogic.newGame` (`$D969` → `$7D87`, M5) — pořadí bratrů losuje generátor originálu nad `$EE7F`/`$EE80`; `seed` (číslo, 16 bitů) se do něj zapíše před losováním, bez něj losuje z dat (vždy stejně). `world` = obsah `data/world.json`, `memory` = obsah `data/memory.json` (bez nich odpoví `error`). `headless: true` tiká jen na vyžádání zprávou `tick` (pro `tools/runworker.mjs`). `startSound: true` = start ze šipky menu (★ `$7481`): požadavek zvuku 6 a první přerušení hned, efekt jde s prvním snímkem. `resume: true` (jen s `mode: 'menu'`) = menu zpátky po SHOW TAPE LOADING: koule, volba a disk pod ní (★ `$FDE8`–`$FEEF`, `$72D6`, `$72DF`), jak je worker měl při posledním `reset`/`init` menu. `mode: 'menu'` = místo hry ★ obrazovka po hře `$71BB` v místnosti `$1E` se šesti disky (`BobbyLogic.MENU_PATCH`), tik = průchod `$720C`, klávesy CURSOR, bez zvuku; snímek nese `menu: {cell, choice, disc, taken, start, ball, steered}` — `disc` = disk pod koulí 0–5 (★ `$72DF` − 2) nebo −1, `taken` = směr vlevo/vpravo na disku ho v tomhle průchodu vzal (★ `$724A`), `ball` = `{x, y}` roh spritu koule na obrazovce (★ `$FDE9`, `$FDE8`), `steered` = průchod řídil cíl zprávy `target`. |
+| `init` | `session`, `initData: {headless, world, memory, seed, hiScore}` | start nové hry: ★ paměť menu z dat a `BobbyLogic.newGame` (`$D969` → `$7D87`, M5) — pořadí bratrů losuje generátor originálu nad `$EE7F`/`$EE80`; `seed` (číslo, 16 bitů) se do něj zapíše před losováním, bez něj losuje z dat (vždy stejně). `world` = obsah `data/world.json`, `memory` = obsah `data/memory.json` (bez nich odpoví `error`). `headless: true` tiká jen na vyžádání zprávou `tick` (pro `tools/runworker.mjs`). `startSound: true` = start ze šipky menu (★ `$7481`): požadavek zvuku 6 a první přerušení hned, efekt jde s prvním snímkem. `resume: true` (jen s `mode: 'menu'`) = menu zpátky po SHOW TAPE LOADING: koule, volba a disk pod ní (★ `$FDE8`–`$FEEF`, `$72D6`, `$72DF`), jak je worker měl při posledním `reset`/`init` menu. `mode: 'menu'` = místo hry ★ obrazovka po hře `$71BB` v místnosti `$1E` se šesti disky (`BobbyLogic.MENU_PATCH`), tik = průchod `$720C`, klávesy CURSOR, bez zvuku; snímek nese `menu: {cell, choice, disc, taken, start, ball, steered}` — `disc` = disk pod koulí 0–5 (★ `$72DF` − 2) nebo −1, `taken` = směr vlevo/vpravo na disku ho v tomhle průchodu vzal (★ `$724A`), `ball` = `{x, y}` roh spritu koule na obrazovce (★ `$FDE9`, `$FDE8`), `steered` = průchod řídil cíl zprávy `target`. |
 | `controls` | `left`, `right`, `up`, `down`, `cheat` (boolean) | úplný stav ovládání; posílá se při každé změně a **celý**; neznámé klíče se zahodí. |
 | `target` | `x`, `y` (px obrazovky) | jen menu: koule se dokoulí k bodu kliknutí / dotyku — worker před každým průchodem drží čtyři směry za hráče (`steerToTarget`), nejdřív sloupec (vpravo + nahoru →, vlevo + dolů ←), pak řádek po osách se zachovaným sloupcem; u stěny pásu řádek ustoupí. Po dojetí cíl zahodí a směry pustí. Bez `x`/`y` cíl zruší a směry pustí; zpráva `controls` ho zruší taky (vyhraje hráč). Disk vzatý cestou (`taken` se `steered`) model neotvírá. |
 | `endGame` | – | EXIT GAME z pauzy remaku: ★ koncová obrazovka originálu pro konec času (`$7D06` s textem `$749D`) přes hru, jak stojí, její zvuk, hodiny stojí a poslední snímek nese `outcome: 'quit'` — model na něm hru ukončí jako na ostatních koncích (operátor 2026-10-31). |
