@@ -6,9 +6,9 @@
  *
  * - `data/tape.json` (`tools/mktape.py`): časování a délky čtyř bloků jsou
  *   z TZX (`bblib.tzx_blocks()` přes `python3`), bajty nese jen hlavička
- *   a ty jsou z kazety; zvuk ostatních bloků dělá `AlkatrazLoader.tapeBytes`
- *   — obrázek a proměnné bloku 4 z `data/loading.json`, zbytek seedovaný
- *   PRNG, pokaždé stejný
+ *   a ty jsou z kazety; bajty bloku 4 pro zvuk dává `AlkatrazLoader.blockBytes`
+ *   — kontrolní slovo `$5B7C`, obrázek a proměnné z `data/loading.json`,
+ *   program za nimi je jen šum (`audioManager.js`)
  * - `data/loading.json` (`tools/mkscreen.py`): obrázek v pořadí pásky,
  *   proměnné a paměť zavaděče = to, co `tools/traceloader.py` odečetl
  *   z nahrání bez pulzů (`build/ref/loader.json`)
@@ -140,17 +140,17 @@ async function main() {
 
   // --- the bytes the sound plays
   d0 = diffs; c0 = checks;
-  const bytes4 = AlkatrazLoader.tapeBytes(block, picture, vars);
-  count(bytes4.length === block.length);
+  const bytes4 = AlkatrazLoader.blockBytes(block, picture, vars);
+  count(bytes4.length === first+pictureCount+vars.length);
+  count(bytes4[0] === (AlkatrazLoader.CHECK & 0xFF) && bytes4[1] === (AlkatrazLoader.CHECK >> 8));
   for (let i = 0; i < pictureCount; i++) { count(bytes4[first+i] === picture[i]); }
   for (let i = 0; i < vars.length; i++) { count(bytes4[first+pictureCount+i] === vars[i]); }
-  count(same(Array.from(AlkatrazLoader.tapeBytes(block, picture, vars)), Array.from(bytes4)));
   tape.blocks.forEach((b, i) => {
-    const bytes = AlkatrazLoader.tapeBytes(b, picture, vars);
-    count(bytes.length === b.length);
-    if (b.header) { count(Buffer.from(bytes).toString('hex') === raw[i][0]); }
+    const bytes = AlkatrazLoader.blockBytes(b, picture, vars);
+    if (b.header) { count(bytes !== null && Buffer.from(bytes).toString('hex') === raw[i][0]); }
+    else if (!b.pictureBytes) { count(bytes === null); }
   });
-  console.log(`bajty zvuku: délky, hlavička, obrázek a proměnné v bloku 4  ${checks-c0} kontrol, ${diffs-d0} rozdílů`);
+  console.log(`bajty zvuku: hlavička, kontrolní slovo, obrázek a proměnné bloku 4  ${checks-c0} kontrol, ${diffs-d0} rozdílů`);
 
   console.log(`celkem ${checks} kontrol, **${diffs} rozdílů**`);
   process.exit(diffs ? 1 : 0);

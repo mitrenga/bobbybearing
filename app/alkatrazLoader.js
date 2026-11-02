@@ -45,10 +45,12 @@
  * and the states write into the screen is collected in `dirty` for the
  * entity to repaint. Register names follow the original (`b2` = B' …).
  *
- * The bytes of the tape the remake plays are not the tape's (data/tape.json
- * carries only the header): `tapeBytes` makes them — the picture and the
- * variables real, the rest from a seeded xorshift32, so a load sounds like
- * data and plays the same every time (R-009).
+ * The bytes of the tape the remake plays are the header (data/tape.json) and
+ * what the loader reads off the second turbo block: the check word, the
+ * picture and the variables (`blockBytes`). The program after them only
+ * sounds, and the remake plays noise there (audioManager.js), the way
+ * Manic Miner does; the text and the counter then step by the clock
+ * (tapeLoadingModel.js).
  */
 export class AlkatrazLoader {
 
@@ -581,39 +583,35 @@ export class AlkatrazLoader {
 
   /**
    * The bytes a block of the tape plays as (audioManager.tapeBlockSound):
-   * the header as it is, the picture and the variables of the second turbo
-   * block as the loader decrypts them, everything else from a seeded
-   * xorshift32 — the sound of data, repeatable, not the program itself.
-   * `extra` bytes more go after the block's own: the sound of a block whose
-   * end the loader's conversion decides (the last byte in, the counter at
-   * 000) rather than the sound itself, so it plays on until it is stopped.
+   * the header as it is (data/tape.json `bytes`); of the second turbo block
+   * what the remake has — ★ the check word `$5B7C` the loader tests at
+   * `$F772`, the 6714 bytes of the picture and the 10 of the variables, as
+   * the loader decrypts them (data/loading.json). The program after them is
+   * not here: it only sounds, and noise plays for it.
    * @param {Object} block - A block of data/tape.json.
-   * @param {Uint8Array|null} picture - The 6714 bytes of the picture in tape order.
-   * @param {Uint8Array|null} vars - The 10 bytes of variables after it.
-   * @param {number} [extra] - Bytes of noise after the block, 0 by default.
-   * @returns {Uint8Array} `block.length` (+ `extra`) bytes.
+   * @param {Uint8Array|null} picture - The picture in tape order; zeros when missing.
+   * @param {Uint8Array|null} vars - The variables after it; zeros when missing.
+   * @returns {Uint8Array|null} The bytes, or null for a block that only sounds.
    */
-  static tapeBytes(block, picture, vars, extra) {
-    var bytes = new Uint8Array(block.length+(extra || 0));
+  static blockBytes(block, picture, vars) {
     if (block.bytes) {
-      bytes.set(AlkatrazLoader.hex(block.bytes).subarray(0, block.length));
-      return bytes;
+      return AlkatrazLoader.hex(block.bytes).subarray(0, block.length);
     }
-    var seed = (AlkatrazLoader.SEED+block.block) >>> 0;
-    for (var i = 0; i < bytes.length; i++) {
-      seed ^= seed << 13; seed >>>= 0;
-      seed ^= seed >>> 17;
-      seed ^= seed << 5; seed >>>= 0;
-      bytes[i] = seed & 0xFF;
+    if (!block.pictureBytes) {
+      return null;
     }
-    if (block.pictureBytes && picture) {
-      bytes.set(picture.subarray(0, block.pictureBytes[1]), block.pictureBytes[0]);
-      if (vars) {
-        bytes.set(vars, block.pictureBytes[0]+block.pictureBytes[1]);
-      }
+    var first = block.pictureBytes[0], count = block.pictureBytes[1];
+    var bytes = new Uint8Array(first+count+AlkatrazLoader.VARS);
+    bytes[0] = AlkatrazLoader.CHECK & 0xFF;
+    bytes[1] = AlkatrazLoader.CHECK >> 8;
+    if (picture) {
+      bytes.set(picture.subarray(0, count), first);
+    }
+    if (vars) {
+      bytes.set(vars.subarray(0, AlkatrazLoader.VARS), first+count);
     }
     return bytes;
-  } // tapeBytes
+  } // blockBytes
 
   /**
    * Bytes out of base64, without the DOM (tools run this in Node).
@@ -658,9 +656,9 @@ export class AlkatrazLoader {
 
 /** ★ where the list of addresses starts ($FB1B before the generator runs) */
 AlkatrazLoader.LIST = 0xC23D;
-/** the seed of the bytes that only sound (tapeBytes) */
-AlkatrazLoader.SEED = 0x1986;
-/** bytes of noise after the second turbo block, some 20 s: the loader stops the sound (tapeBytes) */
-AlkatrazLoader.TAIL = 5000;
+/** ★ the check word the first two bytes of the second turbo block decrypt to ($F772) */
+AlkatrazLoader.CHECK = 0x5B7C;
+/** ★ the bytes of variables after the picture ($F6B7) */
+AlkatrazLoader.VARS = 10;
 
 export default AlkatrazLoader;

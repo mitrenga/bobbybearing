@@ -27,7 +27,9 @@ const { AlkatrazLoader } = await import('./alkatrazLoader.js?ver='+window.srcVer
  * ZXMachineSounds) and the four blocks of the tape as data/tape.json times
  * them — each with its own pilot, sync pulses and bits (★ the two turbo
  * blocks in the Alkatraz loader's timing: pilot 2143 / 2144 T, sync
- * 674/674 T, bits 561/1122 T); the bytes are made here (tapeBlockSound).
+ * 674/674 T, bits 561/1122 T): the header and the loaded part of the second
+ * turbo block as bytes, the rest as pilot tone and noise (tapeBlockSound,
+ * tapePilotSound, tapeNoiseSound).
  *
  * ★ **The game's sound** (M6, M7): the worker runs the original's handler
  * over the game's memory once a frame of the machine (app/beeperPlayer.js,
@@ -78,21 +80,22 @@ export class AudioManager extends AbstractAudioManager {
    * One block of the tape as it sounds: the pilot, the two sync pulses, every
    * byte and the terminating pulse, in the block's own timing out of
    * data/tape.json (tools/mktape.py), played by svision's
-   * ZXMachineSounds.tapeBlock. ★ The timing and the lengths are the tape's;
-   * the bytes are not (data/tape.json carries only the ROM header): the
-   * picture and the variables of the second turbo block come from
-   * data/loading.json, the rest is a seeded PRNG — the sound of data, the
-   * same every load (AlkatrazLoader.tapeBytes, R-009).
+   * ZXMachineSounds.tapeBlock. ★ The timing is the tape's (the pilot cut by
+   * tapeLoadingModel.js shortenedTape); the bytes are what the remake has
+   * (AlkatrazLoader.blockBytes): the ROM header, and of the second turbo
+   * block the check word, the picture and the variables. ★ That block goes
+   * on with **noise** in its own timing (`infinityRndPulses`, the way Manic
+   * Miner sounds its data): the program after the picture only sounds, and
+   * the tape loading stops the sound when the loader is done. Nothing ends
+   * such a block by itself, so it carries no `tapeBlockEnd`.
    *
-   * Three events come with it, and the tape loading lives off them rather
-   * than off a timer (tapeLoadingModel.js handleEvent):
+   * Three events come with a block, and the tape loading lives off them
+   * rather than off a timer (tapeLoadingModel.js handleEvent):
    *
    * - `tapePilotEnd` when the pilot is over — the stripes change,
-   * - `tapeByte` after every byte of `eventBytes` (first byte and count;
-   *   every byte of the second turbo block), with its number `at`: the
-   *   loader's conversion takes it from there (AlkatrazLoader.loadByte),
-   * - `tapeBlockEnd` when the sound is over — the tape moves on (the second
-   *   turbo block moves on by itself, on its last byte).
+   * - `tapeByte` after every byte, with its number `at`: the loader's
+   *   conversion takes it from there (AlkatrazLoader.loadByte),
+   * - `tapeBlockEnd` when the sound is over — the tape moves on.
    *
    * @param {number} sampleRate
    * @param {number} level - Bus volume.
@@ -100,39 +103,81 @@ export class AudioManager extends AbstractAudioManager {
    * @returns {Object|false} svision pulse data, or false without the data.
    */
   tapeBlockSound(sampleRate, level, number) {
-    // the tape loading hands its data/tape.json over (it may have come from
-    // the server rather than from localStorage)
-    var tape = this.tapeData || this.loadDataFile('tape');
-    if (!tape || !tape.blocks || !tape.blocks[number-1]) {
+    var block = this.tapeBlock(number);
+    var bytes = block ? AlkatrazLoader.blockBytes(block, this.tapePicture, this.tapeVars) : null;
+    if (!bytes) {
       return false;
     }
-    var block = tape.blocks[number-1];
-    // ★ the block the loader draws through ends when its last byte is in
-    // (tapeLoadingModel.js `tapeByte`), not when the sound runs out: the
-    // sound gets noise after it and is stopped from there
-    var bytes = AlkatrazLoader.tapeBytes(block, this.tapePicture, this.tapeVars,
-                                         block.eventBytes ? AlkatrazLoader.TAIL : 0);
-    var options = {pilotEndEvent: 'tapePilotEnd', endEvent: 'tapeBlockEnd',
-                   eventData: {block: number}};
-    // the bytes that send `tapeByte`: first byte and count (data/tape.json
-    // eventBytes — every byte of the second turbo block, because the loader
-    // draws on the screen all the way through it)
-    var events = block.eventBytes || block.pictureBytes;
-    if (events) {
-      Object.assign(options, {byteEvent: 'tapeByte', firstEventByte: events[0],
-                              lastEventByte: events[0]+events[1]-1});
+    var options = {pilotEndEvent: 'tapePilotEnd', byteEvent: 'tapeByte',
+                   firstEventByte: 0, lastEventByte: bytes.length-1, eventData: {block: number}};
+    var endless = !!block.pictureBytes;
+    if (!endless) {
+      options.endEvent = 'tapeBlockEnd';
     }
-    return ZXMachineSounds.tapeBlock(sampleRate, level, block, bytes, options);
+    var audioData = ZXMachineSounds.tapeBlock(sampleRate, level, block, bytes, options);
+    if (endless) {
+      // the fragments of tapeBlock: 3 a zero bit, 4 a one bit, two pulses each
+      audioData.infinityRndPulses = {fragments: [3, 4], quantity: 2};
+    }
+    return audioData;
   } // tapeBlockSound
 
   /**
-   * How long a block of the tape plays, in ms, **as it sounds**: the pulse
+   * The pilot tone of a block on its own, repeated for as long as the tape
+   * loading lets it play (Manic Miner's tapePilotToneSound): the blocks the
+   * remake only sounds, in the block's own pulse length.
+   * @param {number} sampleRate
+   * @param {number} level - Bus volume.
+   * @param {number} number - The block, 1-4.
+   * @returns {Object|false} svision pulse data.
+   */
+  tapePilotSound(sampleRate, level, number) {
+    var block = this.tapeBlock(number);
+    if (!block) {
+      return false;
+    }
+    return {fragments: [ZXMachineSounds.pulse(sampleRate, block.pilot)], pulses: [0], volume: level};
+  } // tapePilotSound
+
+  /**
+   * Data of no content in a block's own timing (Manic Miner's
+   * tapeRndDataSound in the turbo timing): the two sync pulses and endless
+   * random bits, until the tape loading stops them.
+   * @param {number} sampleRate
+   * @param {number} level - Bus volume.
+   * @param {number} number - The block, 1-4.
+   * @returns {Object|false} svision pulse data.
+   */
+  tapeNoiseSound(sampleRate, level, number) {
+    var block = this.tapeBlock(number);
+    if (!block) {
+      return false;
+    }
+    var fragments = [block.sync[0], block.sync[1], block.zero, block.one].map(
+      (tStates) => ZXMachineSounds.pulse(sampleRate, tStates));
+    return {fragments: fragments, pulses: [0, 1], volume: level,
+            infinityRndPulses: {fragments: [2, 3], quantity: 2}};
+  } // tapeNoiseSound
+
+  /**
+   * A block of the tape as the tape loading handed it over (it may have come
+   * from the server rather than from localStorage).
+   * @param {number} number - The block, 1-4.
+   * @returns {Object|null}
+   */
+  tapeBlock(number) {
+    var tape = this.tapeData || this.loadDataFile('tape');
+    return tape && tape.blocks && tape.blocks[number-1] ? tape.blocks[number-1] : null;
+  } // tapeBlock
+
+  /**
+   * How long the bytes of a block play, in ms, **as they sound**: the pulse
    * lengths rounded to whole samples at the context's sample rate
    * (ZXMachineSounds.pulse rounds up — at 44.1 kHz a block plays some 10 %
-   * longer than the tape's `durationMs`; the second turbo block some 200 s
-   * instead of 183). The tape loading's fallback timer has to count with
-   * this, not with the tape's length (2026-11-02: a timer off the tape's
-   * length cut the block some 15 s early, the counter at 050).
+   * longer than the tape's `durationMs`); the noise after the second turbo
+   * block is not counted. The tape loading's fallback timer has to count
+   * with this, not with the tape's length (2026-11-02: a timer off the
+   * tape's length cut the block some 15 s early, the counter at 050).
    * @param {number} number - The block, 1-4.
    * @returns {number} Milliseconds, 0 without the data.
    */
@@ -193,9 +238,9 @@ export class AudioManager extends AbstractAudioManager {
 
     var sampleRate = this.getSampleRate();
     var level = this.volumeLevel(this.volume.sounds);
-    var tapeBlock = /^tapeBlock(\d+)$/.exec(sound);
-    if (tapeBlock) {
-      return this.tapeBlockSound(sampleRate, level, Number(tapeBlock[1]));
+    var tape = /^tape(Block|Pilot|Noise)(\d+)$/.exec(sound);
+    if (tape) {
+      return this['tape'+tape[1]+'Sound'](sampleRate, level, Number(tape[2]));
     }
     switch (sound) {
       case 'keyboardSound': return ZXMachineSounds.keyClick(sampleRate, level);

@@ -18,9 +18,10 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  * and the loading lives off those events rather than off a timer.
  *
  * The picture is not revealed by a timer, it is **loaded**: the sound sends
- * an event after every byte of the second turbo block and the model hands
- * the byte to the conversion of the loader's second stage
- * (alkatrazLoader.js), which puts it where the Alkatraz loader would — ★
+ * an event after every byte it carries of the second turbo block (the check
+ * word, the picture, the variables) and the model hands the byte to the
+ * conversion of the loader's second stage (alkatrazLoader.js), which puts
+ * it where the Alkatraz loader would — ★
  * the loader generates the order of the screen addresses itself ($F983),
  * cell by cell in a spiral from the middle, several cells interleaved; and
  * **between the edges of every bit** its state machine ($F7AE) draws on
@@ -29,6 +30,13 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  * its own memory; data/loading.json carries only the 6714 bytes of the
  * picture as they come off the tape and the 1.3 KB of the loader's memory
  * the code reads (tools/traceloader.py, tools/matchtape.mjs).
+ *
+ * The program after the picture (40 KB, three minutes) only sounds: the
+ * remake plays noise for it (audioManager.js tapeBlockSound, the way Manic
+ * Miner sounds its data) and **steps the loader by the clock**, a byte every
+ * BYTE_MS, until its last byte is in and the counter is at 000 — then the
+ * block is over and the sound stops (loopModel). The BASIC and the first
+ * turbo block only sound too: pilot tone and noise by the clock (script).
  *
  * ★ **What the screen shows is measured** (tools/traceloading.py, the
  * simulated load, frame by frame):
@@ -83,6 +91,10 @@ export class TapeLoadingModel extends AbstractModel {
     this.loader = null;
     this.picture = null;
     this.vars = null;
+    // the program of the second turbo block by the clock (loadByClock): when
+    // it started, the first and the next byte; null while the sound carries
+    // the bytes
+    this.clock = null;
   } // constructor
 
   /**
@@ -90,25 +102,39 @@ export class TapeLoadingModel extends AbstractModel {
    * between them and what happens on the screen in between. The blocks come
    * out of data/tape.json, the pauses too — ? those are a property of the
    * TZX container rather than of the tape, so they are an order of
-   * magnitude, not measured numbers. A block lasts as long as its sound
-   * (nextStep), the second turbo block as long as its bytes take to load.
+   * magnitude, not measured numbers. The header (block 1) lasts as long as
+   * its sound; the BASIC and the first turbo block are a pilot tone and
+   * noise by the clock (`pilot`, `noise`, as Manic Miner's loading); the
+   * second turbo block lasts as long as its bytes take to load — its
+   * picture by the sound, the program by the clock (loopModel).
+   *
+   * The remake shortens the waits (operator 2026-11-02, the load is a
+   * backdrop, not a measurement): the pilot tones to PILOT_MS (the tape's:
+   * 5.0, 2.0, 3.8 and 1.8 s), the pauses between the blocks to PAUSE_MS
+   * (the tape's: 1.0, 2.5, 10.7 and 0 s) and the data of the BASIC and of
+   * the first turbo block to DATA_MS (the tape's: 6.9 and 18.7 s);
+   * data/tape.json keeps the tape's numbers, `shortenedTape` makes the copy
+   * the sound plays.
    * @param {Object} tape - data/tape.json.
    * @returns {Object[]} The steps.
    */
   script(tape) {
-    var b = tape.blocks;
-    var pause = (n) => ({id: 'pause', duration: b[n-1].pauseMs});
+    var pause = (n) => ({id: 'pause', duration: TapeLoadingModel.PAUSE_MS[n-1]});
     var block = (n, extra) => Object.assign({id: 'block', block: n}, extra || {});
+    var pilot = (n) => ({id: 'pilot', block: n, duration: TapeLoadingModel.PILOT_MS[n-1]});
+    var noise = (n, extra) => Object.assign({id: 'noise', block: n, duration: TapeLoadingModel.DATA_MS[n-1]}, extra || {});
     return [
       {id: 'pause', duration: 1000},
       // the ROM loads the BASIC: header, then the program
       block(1, {end: {id: 'setProgramName'}}),
       pause(1),
       // ★ line 0 runs straight away (autostart 0): USR $5D4C into the loader
-      block(2, {end: {id: 'runBasic'}}),
+      pilot(2),
+      noise(2, {end: {id: 'runBasic'}}),
       pause(2),
       // ★ the loader's second stage, decrypted in layers after it (the pause)
-      block(3, {turbo: true}),
+      pilot(3),
+      noise(3),
       pause(3),
       block(4, {turbo: true, start: {id: 'secondStage'}}),
       // the code jumps to $D6B6 — the remake's menu takes over
@@ -148,7 +174,7 @@ export class TapeLoadingModel extends AbstractModel {
       return;
     }
     files = files || {};
-    var tape = files.tape;
+    var tape = this.shortenedTape(files.tape);
     this.loading = files.loading;
     // the tape's sound is rendered later, block by block (audioManager.js)
     if (this.app.audioManager) {
@@ -202,13 +228,27 @@ export class TapeLoadingModel extends AbstractModel {
         // ★ the second stage keeps the border solid blue (secondStage)
         this.sendEvent(0, {id: 'setBorderAnimation', value: step.block == 4 ? false : 'pilotTone'});
         // the block ends itself: with `tapeBlockEnd` from the sound, the
-        // second turbo block with its last byte in (`tapeByte`, the counter
-        // at 000); this only catches a bus that never got to play it. The
+        // second turbo block by the clock once its bytes are in (loopModel);
+        // this only catches a bus that never got to play its bytes. The
         // length is the sound's own (audioManager.tapeBlockMs: the pulses
         // rounded to samples play some 10 % longer than the tape's
-        // `durationMs`, and the second block has noise after it) — a timer
-        // off the tape's length cut the block 15 s early (2026-11-02)
+        // `durationMs`) — a timer off the tape's length cut the block 15 s
+        // early (2026-11-02)
         this.sendEvent(this.app.audioManager.tapeBlockMs(step.block)+2000, {id: 'updateTape', fallback: true});
+        return;
+      case 'pilot':
+        // a pilot tone on its own, as long as the script says (Manic Miner)
+        this.breakable = step.block < 3;
+        this.sendEvent(0, {id: 'playSound', bus: 'sounds', sound: 'tapePilot'+step.block, options: {repeat: true}});
+        this.sendEvent(0, {id: 'setBorderAnimation', value: 'pilotTone'});
+        this.sendEvent(step.duration, {id: 'updateTape'});
+        return;
+      case 'noise':
+        // data that only sound, as long as the script says
+        this.breakable = step.block < 3;
+        this.sendEvent(0, {id: 'playSound', bus: 'sounds', sound: 'tapeNoise'+step.block, options: false});
+        this.sendEvent(0, {id: 'setBorderAnimation', value: 'dataTone'});
+        this.sendEvent(step.duration, {id: 'updateTape'});
         return;
       case 'pause':
         this.breakable = true;
@@ -221,6 +261,28 @@ export class TapeLoadingModel extends AbstractModel {
         return;
     }
   } // nextStep
+
+  /**
+   * data/tape.json with the pilot tones cut to PILOT_MS (the count of pilot
+   * pulses recomputed from the block's own pulse length), for the sound and
+   * the fallback timers; the tape's own numbers stay in the data.
+   * @param {Object|null} tape - data/tape.json.
+   * @returns {Object|null} A copy with shorter pilots.
+   */
+  shortenedTape(tape) {
+    if (!tape || !tape.blocks) {
+      return tape;
+    }
+    var copy = Object.assign({}, tape);
+    copy.blocks = tape.blocks.map((block, i) => {
+      var ms = TapeLoadingModel.PILOT_MS[i];
+      if (ms === undefined) {
+        return block;
+      }
+      return Object.assign({}, block, {pilotPulses: Math.round(ms*3500/block.pilot)});
+    });
+    return copy;
+  } // shortenedTape
 
   /**
    * The step is over: what it leaves behind, and the step after it.
@@ -297,12 +359,15 @@ export class TapeLoadingModel extends AbstractModel {
             this.screenEntity.pokeOffset(dirty[i], this.loader.mem[0x4000+dirty[i]]);
           }
           dirty.length = 0;
-          // ★ the last byte is in, the counter at 000: the block is over
-          // here, whatever the sound (it has noise after the block and the
-          // next step stops it) — operator 2026-11-02
-          var step = this.tapePhase === false ? null : this.tape[this.tapePhase];
-          if (this.loader.done && step && step.id == 'block' && step.block == event.data.block) {
-            this.endStep();
+          // the last byte the sound carries (the variables are in): the
+          // program after it goes by the clock (loopModel), the sound is
+          // noise from here
+          var block = this.app.audioManager.tapeBlock(event.data.block);
+          if (block && block.pictureBytes && n === block.pictureBytes[0]+block.pictureBytes[1]+AlkatrazLoader.VARS-1) {
+            this.clock = {start: null, first: n+1, next: n+1, block: event.data.block};
+            // the fallback timer of nextStep covered the bytes off the sound
+            // only; from here the clock ends the block
+            this.cancelEvent('updateTape');
           }
         }
         return true;
@@ -479,8 +544,52 @@ export class TapeLoadingModel extends AbstractModel {
 
   loopModel(timestamp) {
     super.loopModel(timestamp);
-
+    this.loadByClock(timestamp);
     this.drawModel();
   } // loopModel
 
+  /**
+   * ★ The program of the second turbo block by the clock: a byte every
+   * BYTE_MS (eight bits, a zero or a one each, two pulses: `zero + one` T
+   * on average in the block's timing), as many as the time since the last
+   * byte off the sound says, each stepping the loader's state machine eight
+   * times — the running text and the counter go on at the tape's pace while
+   * the sound is noise. ★ The last byte in, the counter at 000: the block
+   * is over here and the next step stops the sound (operator 2026-11-02).
+   * @param {number} timestamp - The model's clock, ms.
+   */
+  loadByClock(timestamp) {
+    var clock = this.clock;
+    var step = this.tapePhase === false ? null : this.tape[this.tapePhase];
+    if (!clock || !this.loader || this.tapeBreak || !step || step.id != 'block' || step.block != clock.block) {
+      return;
+    }
+    if (clock.start === null) {
+      clock.start = timestamp;            // the model's clock, the one loopModel gets
+    }
+    var block = this.app.audioManager.tapeBlock(clock.block);
+    var byteMs = 8*(block.zero+block.one)/3500;
+    var due = clock.first+Math.floor((timestamp-clock.start)/byteMs);
+    while (clock.next <= due && !this.loader.done) {
+      this.loader.loadByte(clock.next, 0);
+      clock.next++;
+    }
+    var dirty = this.loader.dirty;
+    for (var i = 0; i < dirty.length; i++) {
+      this.screenEntity.pokeOffset(dirty[i], this.loader.mem[0x4000+dirty[i]]);
+    }
+    dirty.length = 0;
+    if (this.loader.done) {
+      this.clock = null;
+      this.endStep();
+    }
+  } // loadByClock
+
 } // TapeLoadingModel
+
+/** the pilot tones of the four blocks as the remake plays them, in ms (operator 2026-11-02) */
+TapeLoadingModel.PILOT_MS = [3000, 2000, 3000, 2000];
+/** the pauses after the four blocks as the remake plays them, in ms (operator 2026-11-02) */
+TapeLoadingModel.PAUSE_MS = [1000, 1000, 1000, 0];
+/** the noise for the data of the BASIC and of the first turbo block, in ms (operator 2026-11-02) */
+TapeLoadingModel.DATA_MS = [undefined, 3000, 4000, undefined];
