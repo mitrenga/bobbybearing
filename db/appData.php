@@ -6,9 +6,11 @@ class DataCommand {
   //
   // - `screen`   – úvodní obrazovka originálu jako data programu (komprimovaný
   //                obraz z $DA30, skládá ho převod $D9D8) (M1)
-  // - `loading`  – loading screen a pořadí, v jakém ho zavaděč odkrývá (M1)
-  // - `tape`     – scénář pro LOAD TAPE: bloky kazety a jejich časování (M1)
-  // - `overlay`  – co zavaděč kreslí během bloku 4: běžící text, počítadlo (M1)
+  // - `loading`  – loading screen, jak jde po pásce, a paměť 2. stupně
+  //                zavaděče, nad kterou remake počítá pořadí adres i běžící
+  //                text s počítadlem kódem originálu (app/alkatrazLoader.js)
+  // - `tape`     – scénář pro LOAD TAPE: bloky kazety a jejich časování, bajty
+  //                jen hlavičky (M1)
   // - `world`    – místnosti jako úseky paměti originálu; staví z nich worker
   //                (app/worldRenderer.js, M2)
   // - `memory`   – zbytek paměti originálu na startu hry, nad kterou worker
@@ -18,7 +20,7 @@ class DataCommand {
   //
   // Databázi start aplikace nepotřebuje: originál nemá skóre, takže tu není
   // žádné HI, a síň slávy si tabulku čte sama (`hallOfFame.db`).
-  var $files = ['screen', 'loading', 'tape', 'overlay', 'world', 'memory'];
+  var $files = ['screen', 'loading', 'tape', 'world', 'memory'];
 
   public function execute($postData) {
     $result = [];

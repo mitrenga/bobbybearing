@@ -1,126 +1,157 @@
 #!/usr/bin/env node
 /**
- * LOAD TAPE: co remake zahraje a zapíše, proti kazetě.
+ * LOAD TAPE: co remake zahraje a zapíše, proti kazetě a 2. stupni zavaděče.
  *
- *   ./tools/mksnapshot.sh && ./tools/mktape.py && ./tools/mkscreen.py && ./tools/matchtape.mjs
+ *   ./tools/mksnapshot.sh && ./tools/mktape.py && ./tools/mkscreen.py && ./tools/traceloader.py && ./tools/matchtape.mjs
  *
- * - `data/tape.json` nese bloky tak, jak jdou po pásce (`tools/mktape.py`);
- *   kontroluje se, že jsou **bajt po bajtu** z kazety (všechny čtyři celé —
- *   `bblib.tzx_blocks()` přes `python3`) a že časování turbo bloků je z TZX
- * - obrázek, který `app/tapeLoadingModel.js` během nahrávání zapíše do
- *   videopaměti — po události `tapeByte` bajtu obrázku bajt na `order[...]`
- *   z `data/loading.json` — je **přesně loading screen** (`data/loading.json`
- *   videoRAM); každou adresu obrázku zavaděč zapíše jednou
- * - **celé nahrávání bloku 4**: obrázek a po každém bajtu kreslení zavaděče
- *   z `data/overlay.json` (běžící text, počítadlo) dá **celou obrazovku
- *   simulovaného nahrání na vstupu do hry** (`build/entry.bin`), 6912 kontrol
- *   i v buňkách zavaděče
+ * - `data/tape.json` (`tools/mktape.py`): časování a délky čtyř bloků jsou
+ *   z TZX (`bblib.tzx_blocks()` přes `python3`), bajty nese jen hlavička
+ *   a ty jsou z kazety; zvuk ostatních bloků dělá `AlkatrazLoader.tapeBytes`
+ *   — obrázek a proměnné bloku 4 z `data/loading.json`, zbytek seedovaný
+ *   PRNG, pokaždé stejný
+ * - `data/loading.json` (`tools/mkscreen.py`): obrázek v pořadí pásky,
+ *   proměnné a paměť zavaděče = to, co `tools/traceloader.py` odečetl
+ *   z nahrání bez pulzů (`build/ref/loader.json`)
+ * - ★ **převod 2. stupně zavaděče** `app/alkatrazLoader.js` proti originálu
+ *   krok po kroku: generátor adres (`$F983`) dá všech 6714 adres obrázku
+ *   v pořadí originálu; stavový automat textu a počítadla (`$F7AE`) má po
+ *   každém z 318 920 kroků (jeden na bit od bajtu 6718) tytéž registry
+ *   (`$F7AF`, A', CY', BC', DE', HL', IY, `$F7F3`, `$F8CE`, `$F980`–`$F982`)
+ *   a tytéž změny buněk řádků 22–23 jako originál
+ * - **celý blok 4** přehraný do převodu (obrázek bajt po bajtu, text,
+ *   počítadlo) dá **celou obrazovku simulovaného nahrání na vstupu do hry**
+ *   (`build/entry.bin`), 6912 kontrol
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import url from 'node:url';
 import { execFileSync } from 'node:child_process';
-import zlib from 'node:zlib';
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
+await import(path.join(ROOT, 'app/svision/tools/nodeEnv.mjs'));
+const { AlkatrazLoader } = await import(path.join(ROOT, 'app/alkatrazLoader.js'));
 
-// ★ buňky, do kterých zavaděč během nahrávání kreslí (tools/matchloading.py OVERLAY)
-function overlay(i) {
-  let row, col;
-  if (i >= 6144) { row = Math.floor((i-6144)/32); col = (i-6144) % 32; } else {
-    const y = ((i >> 11) & 3)*64 + ((i >> 5) & 7)*8 + ((i >> 8) & 7);
-    row = y >> 3; col = i & 31;
-  }
-  return (row === 23 && col >= 1 && col <= 21) || ((row === 22 || row === 23) && col >= 28);
-}
+let checks = 0, diffs = 0;
+function count(ok) { checks++; if (!ok) { diffs++; } return ok; }
+function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
 async function main() {
   const tape = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/tape.json'), 'utf8'));
   const loading = JSON.parse(fs.readFileSync(path.join(ROOT, 'data/loading.json'), 'utf8'));
-  const overlayData = JSON.parse(fs.readFileSync(path.join(ROOT, "data/overlay.json"), "utf8"));
+  const ref = JSON.parse(fs.readFileSync(path.join(ROOT, 'build/ref/loader.json'), 'utf8'));
+  const entry = fs.readFileSync(path.join(ROOT, 'build/entry.bin'));
   const raw = JSON.parse(execFileSync('python3', ['-c',
     'import sys, json; sys.path.insert(0, "' + HERE + '"); import bblib as L; '
     + 'print(json.dumps([[bytes(b["raw"]).hex(), b["timing"]] for b in L.tzx_blocks()]))'],
     {maxBuffer: 1 << 26}));
 
-  let checks = 0, diffs = 0;
+  // --- data/tape.json: the tape's timing and lengths, the header's bytes
+  let d0 = diffs;
   tape.blocks.forEach((block, i) => {
-    const mine = Buffer.from(block.bytes, 'hex');
-    const real = Buffer.from(raw[i][0], 'hex').subarray(0, mine.length);
-    let d = 0;
-    for (let k = 0; k < mine.length; k++) { checks++; if (mine[k] !== real[k]) { d++; } }
+    const real = Buffer.from(raw[i][0], 'hex');
+    count(block.length === real.length);
     const t = raw[i][1];
     if (t) {
-      const want = [t.pilot, t.pilotPulses, t.sync1, t.sync2, t.zero, t.one];
-      const got = [block.pilot, block.pilotPulses, block.sync[0], block.sync[1], block.zero, block.one];
-      want.forEach((v, k) => { checks++; if (v !== got[k]) { d++; } });
+      [t.pilot, t.pilotPulses, t.sync1, t.sync2, t.zero, t.one].forEach((v, k) => {
+        count(v === [block.pilot, block.pilotPulses, block.sync[0], block.sync[1], block.zero, block.one][k]);
+      });
     }
-    diffs += d;
-    console.log(`blok ${block.block} ${block.kind.padEnd(5)} ${String(mine.length).padStart(5)} B `
-                + `z ${block.length} proti kazetě: ${d} rozdílů`);
+    if (block.header) {
+      count(block.bytes === raw[i][0]);
+    } else {
+      count(block.bytes === undefined);
+    }
   });
+  console.log(`data/tape.json proti kazetě (časování, délky, hlavička)  ${checks} kontrol, ${diffs-d0} rozdílů`);
 
-  const picture = Buffer.from(loading.videoRAM, 'base64');
-  const block = tape.blocks.find((b) => b.pictureBytes);
-  const [first, count] = block.pictureBytes;
+  // --- data/loading.json against the reference of the simulated load
+  d0 = diffs; let c0 = checks;
+  const picture = await AlkatrazLoader.inflate(loading.picture);
+  const refPicture = Buffer.from(ref.picture, 'hex');
+  count(picture.length === refPicture.length);
+  for (let i = 0; i < refPicture.length; i++) { count(picture[i] === refPicture[i]); }
+  const vars = AlkatrazLoader.hex(loading.vars);
+  const refVars = Buffer.from(ref.vars, 'hex');
+  count(vars.length === refVars.length);
+  for (let i = 0; i < refVars.length; i++) { count(vars[i] === refVars[i]); }
+  count(same(Object.keys(loading.regions).sort(), Object.keys(ref.regions).sort()));
+  Object.keys(ref.regions).forEach((key) => {
+    const mine = AlkatrazLoader.base64(loading.regions[key] || '');
+    const want = Buffer.from(ref.regions[key], 'hex');
+    count(mine.length === want.length);
+    for (let i = 0; i < want.length; i++) { count(mine[i] === want[i]); }
+  });
+  count(same(loading.pictureBytes, tape.blocks[3].pictureBytes));
+  console.log(`data/loading.json = obrázek, proměnné a paměť zavaděče    ${checks-c0} kontrol, ${diffs-d0} rozdílů`);
+
+  // --- the generator of addresses
+  d0 = diffs; c0 = checks;
+  const loader = new AlkatrazLoader(loading.regions);
+  const offsets = loader.pictureOffsets();
+  count(offsets.length === ref.order.length);
+  for (let i = 0; i < ref.order.length; i++) { count(offsets[i] === ref.order[i]); }
+  console.log(`generátor adres $F983 = pořadí originálu                 ${checks-c0} kontrol, ${diffs-d0} rozdílů`);
+
+  // --- the state machine, step by step, the whole second block
+  d0 = diffs; c0 = checks;
   const screen = new Uint8Array(6912);
-  const seen = new Set();
-  let d = 0;
-  // the events the sound sends: one per byte of the picture, `at` counted
-  // from the first one (svision ZXMachineSounds.tapeBlock)
-  for (let at = 0; at < count; at++) {
-    const where = loading.order[at];
-    checks++;
-    if (where === undefined || seen.has(where)) { d++; continue; }
-    seen.add(where);
-    screen[where] = picture[where];
-  }
-  for (let i = 0; i < 6912; i++) { checks++; if (screen[i] !== picture[i]) { d++; } }
-  diffs += d;
-  console.log(`obrázek z událostí tapeByte = data/loading.json   ${count+6912} kontrol, ${d} rozdílů`);
-
-  // the whole second block as tapeLoadingModel plays it: an event after every
-  // byte of `eventBytes`, the picture's bytes poked, then what the loader drew
-  const events = block.eventBytes;
-  // data/overlay.json: after byte n the state of all `cells` (deflated)
-  const states = zlib.inflateSync(Buffer.from(overlayData.states, 'base64'));
-  const cells = overlayData.cells;
-  const drawn = {};
-  overlayData.bytes.forEach((n, k) => {
-    drawn[n] = cells.map((off, i) => [off, states[k*cells.length+i]]);
-  });
-  checks++;
-  if (states.length !== overlayData.bytes.length*cells.length) { diffs++; }
-  const full = new Uint8Array(6912);
-  for (let at = 0; at < events[1]; at++) {
-    const n = events[0]+at;
-    if (n >= first && n < first+count) {
-      const where = loading.order[n-first];
-      full[where] = picture[where];
+  const [first, pictureCount] = loading.pictureBytes;
+  const block = tape.blocks[3];
+  let k = 0, shown = 0, idleBad = 0;
+  for (let n = 0; n < block.length && !loader.done; n++) {
+    let value = 0;
+    if (n >= first && n < first+pictureCount) { value = picture[n-first]; }
+    else if (n >= first+pictureCount && n < first+pictureCount+vars.length) { value = vars[n-first-pictureCount]; }
+    for (let bit = 0; bit < 8; bit++, k++) {
+      loader.dirty.length = 0;
+      loader.step(loader.de & 0xFF);
+      const changes = [];
+      loader.dirty.forEach((o) => {
+        const v = loader.mem[0x4000+o];
+        if (v !== screen[o]) { screen[o] = v; changes.push([o, v]); }
+      });
+      if (k < ref.idle) {
+        if (loader.state !== 0xF7B1 || changes.length) { idleBad++; }
+        continue;
+      }
+      const want = ref.steps[k-ref.idle];
+      if (!want) { continue; }
+      const ok = count(same(loader.snapshot(), want.slice(0, 10)))
+                 & count(same(changes.sort((a, b) => a[0]-b[0]), want[11].sort((a, b) => a[0]-b[0])));
+      if (!ok && shown++ < 5) {
+        console.log(`  krok ${k} (bajt ${n} bit ${bit}): mám ${JSON.stringify(loader.snapshot())} ${JSON.stringify(changes.slice(0, 3))}`);
+        console.log(`  ${' '.repeat(String(k).length+20)}chci ${JSON.stringify(want.slice(0, 10))} ${JSON.stringify(want[11].slice(0, 3))}`);
+      }
     }
-    (drawn[n] || []).forEach(([off, v]) => { full[off] = v; });
+    loader.finishByte(value);
+    loader.dirty.forEach((o) => { screen[o] = loader.mem[0x4000+o]; });
+    loader.dirty.length = 0;
   }
-  // what the loader draws after the last byte comes with tapeBlockEnd
-  (drawn[events[0]+events[1]] || []).forEach(([off, v]) => { full[off] = v; });
-  const entryScreen = fs.readFileSync(path.join(ROOT, 'build/entry.bin'));
-  d = 0;
-  checks++;
-  if (events[0] !== 0 || events[1] !== Buffer.from(block.bytes, 'hex').length) { d++; }
-  for (let i = 0; i < 6912; i++) { checks++; if (full[i] !== entryScreen[i]) { d++; } }
-  diffs += d;
-  console.log(`celý blok 4 s kreslením zavaděče = obrazovka na vstupu ${6913} kontrol, ${d} rozdílů`);
+  count(idleBad === 0);
+  count(k >= ref.idle+ref.steps.length);
+  count(loader.done);
+  console.log(`automat textu a počítadla krok po kroku (${ref.steps.length} kroků) ${checks-c0} kontrol, ${diffs-d0} rozdílů`);
 
-  const entry = fs.readFileSync(path.join(ROOT, 'build/entry.bin'));
-  d = 0;
-  let n = 0;
-  for (let i = 0; i < 6912; i++) {
-    if (overlay(i)) { continue; }
-    n++; checks++;
-    if (picture[i] !== entry[i]) { d++; }
-  }
-  diffs += d;
-  console.log(`loading.json / obrazovka simulátoru na vstupu      ${n} kontrol, ${d} rozdílů`);
+  // --- the whole screen at the end
+  d0 = diffs; c0 = checks;
+  for (let i = 0; i < 6912; i++) { count(loader.mem[0x4000+i] === entry[i]); }
+  console.log(`celý blok 4 v převodu = obrazovka na vstupu do hry      ${checks-c0} kontrol, ${diffs-d0} rozdílů`);
+
+  // --- the bytes the sound plays
+  d0 = diffs; c0 = checks;
+  const bytes4 = AlkatrazLoader.tapeBytes(block, picture, vars);
+  count(bytes4.length === block.length);
+  for (let i = 0; i < pictureCount; i++) { count(bytes4[first+i] === picture[i]); }
+  for (let i = 0; i < vars.length; i++) { count(bytes4[first+pictureCount+i] === vars[i]); }
+  count(same(Array.from(AlkatrazLoader.tapeBytes(block, picture, vars)), Array.from(bytes4)));
+  tape.blocks.forEach((b, i) => {
+    const bytes = AlkatrazLoader.tapeBytes(b, picture, vars);
+    count(bytes.length === b.length);
+    if (b.header) { count(Buffer.from(bytes).toString('hex') === raw[i][0]); }
+  });
+  console.log(`bajty zvuku: délky, hlavička, obrázek a proměnné v bloku 4  ${checks-c0} kontrol, ${diffs-d0} rozdílů`);
+
   console.log(`celkem ${checks} kontrol, **${diffs} rozdílů**`);
   process.exit(diffs ? 1 : 0);
 }

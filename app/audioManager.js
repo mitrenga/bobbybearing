@@ -4,6 +4,7 @@ const { AudioScriptProcessorHandler } = await import('./svision/js/audio/audioSc
 const { AudioSilentHandler } = await import('./svision/js/audio/audioSilentHandler.js?ver='+window.srcVersion);
 const { Tool } = await import('./svision/js/tool.js?ver='+window.srcVersion);
 const { ZXMachineSounds } = await import('./svision/js/platform/canvas2D/zx/zxMachineSounds.js?ver='+window.srcVersion);
+const { AlkatrazLoader } = await import('./alkatrazLoader.js?ver='+window.srcVersion);
 // begin code
 
 /**
@@ -23,10 +24,10 @@ const { ZXMachineSounds } = await import('./svision/js/platform/canvas2D/zx/zxMa
  * whole, side by side. One slider (`sounds`) sets them all.
  *
  * The machine's own sounds: the key click of the ROM (svision
- * ZXMachineSounds) and the four blocks of the tape as data/tape.json has
+ * ZXMachineSounds) and the four blocks of the tape as data/tape.json times
  * them — each with its own pilot, sync pulses and bits (★ the two turbo
  * blocks in the Alkatraz loader's timing: pilot 2143 / 2144 T, sync
- * 674/674 T, bits 561/1122 T) and the bytes they really carry.
+ * 674/674 T, bits 561/1122 T); the bytes are made here (tapeBlockSound).
  *
  * ★ **The game's sound** (M6, M7): the worker runs the original's handler
  * over the game's memory once a frame of the machine (app/beeperPlayer.js,
@@ -50,9 +51,12 @@ export class AudioManager extends AbstractAudioManager {
     this.volume = {};
     // the game's effects the worker rendered for the model (setSample)
     this.samples = {};
-    // data/tape.json from the tape loading (tapeLoadingModel.js)
+    // data/tape.json from the tape loading (tapeLoadingModel.js), and the
+    // bytes of the second turbo block the remake has: the picture in tape
+    // order and the variables after it (data/loading.json, inflated there)
     this.tapeData = null;
-    this.volume.sounds = Math.min(10, Math.max(0, Math.round(Number(Tool.readCookie('audioBusSoundsLevel', 5)))));
+    this.tapePicture = null;
+    this.tapeVars = null;
   } // constructor
 
   /**
@@ -69,29 +73,27 @@ export class AudioManager extends AbstractAudioManager {
 
   /**
    * One block of the tape as it sounds: the pilot, the two sync pulses, every
-   * bit of the bytes the block carries and the terminating pulse — in the
-   * block's own timing out of data/tape.json (tools/mktape.py), played by
-   * svision's ZXMachineSounds.tapeBlock.
+   * byte and the terminating pulse, in the block's own timing out of
+   * data/tape.json (tools/mktape.py), played by svision's
+   * ZXMachineSounds.tapeBlock. ★ The timing and the lengths are the tape's;
+   * the bytes are not (data/tape.json carries only the ROM header): the
+   * picture and the variables of the second turbo block come from
+   * data/loading.json, the rest is a seeded PRNG — the sound of data, the
+   * same every load (AlkatrazLoader.tapeBytes, R-009).
    *
    * Three events come with it, and the tape loading lives off them rather
-   * than off a timer, so the picture and the stripes cannot drift away from
-   * the sound:
+   * than off a timer (tapeLoadingModel.js handleEvent):
    *
    * - `tapePilotEnd` when the pilot is over — the stripes change,
    * - `tapeByte` after every byte of `eventBytes` (first byte and count;
-   *   all of the second turbo block), with its number in the block (`at`)
-   *   and its value **as it goes down the tape** — encrypted;
-   *   tapeLoadingModel takes what the loader does with it from
-   *   data/loading.json and data/overlay.json,
+   *   every byte of the second turbo block), with its number `at`: the
+   *   loader's conversion takes it from there (AlkatrazLoader.loadByte),
    * - `tapeBlockEnd` when the block is over — the tape moves on.
    *
-   * Nothing is sped up: the second turbo block takes its three minutes, the
-   * picture the first 28 seconds of them, as on the machine.
-   *
-   * @param {number} sampleRate - The audio context sample rate.
-   * @param {number} level - Bus volume level.
+   * @param {number} sampleRate
+   * @param {number} level - Bus volume.
    * @param {number} number - The block, 1-4 in the order of the tape.
-   * @returns {Object|boolean} svision pulse data, or false with no data file.
+   * @returns {Object|false} svision pulse data, or false without the data.
    */
   tapeBlockSound(sampleRate, level, number) {
     // the tape loading hands its data/tape.json over (it may have come from
@@ -101,7 +103,7 @@ export class AudioManager extends AbstractAudioManager {
       return false;
     }
     var block = tape.blocks[number-1];
-    var bytes = ZXMachineSounds.dataBytes(block.bytes);
+    var bytes = AlkatrazLoader.tapeBytes(block, this.tapePicture, this.tapeVars);
     var options = {pilotEndEvent: 'tapePilotEnd', endEvent: 'tapeBlockEnd',
                    eventData: {block: number}};
     // the bytes that send `tapeByte`: first byte and count (data/tape.json

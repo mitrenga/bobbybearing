@@ -165,9 +165,13 @@ SKIPS = {0xECFC: 0xED3B, 0xF6DA: 0xF702}
 READS = {0xED4F: (0, 0xED62), 0xF712: (1, 0xF725)}
 
 
-def memory_image(atusr=None, path=TAPE):
+def memory_image(atusr=None, path=TAPE, on_read=None):
     """64K paměti ve chvíli, kdy stub skočí na `ENTRY`, složené bez pulzů.
-    Vrací (bytes 64K, registry SkoolKitu, [přečteno z bloku 3, z bloku 4])."""
+    Vrací (bytes 64K, registry SkoolKitu, [přečteno z bloku 3, z bloku 4]).
+
+    `on_read(sim, k, i)` se volá před každým bajtem (`k` turbo blok, `i` jeho
+    pořadové číslo) na začátku smyčky bajtu — tam, kde originál mezi hranami
+    krokuje kreslení zavaděče (`tools/traceloader.py` ho tam nechá běžet)."""
     skoolkit_path()
     from skoolkit.snapshot import Snapshot
     from skoolkit.simulator import Simulator
@@ -187,6 +191,8 @@ def memory_image(atusr=None, path=TAPE):
             continue
         if pc in READS:
             k, ret = READS[pc]
+            if on_read:
+                on_read(sim, k, used[k])
             r[L] = streams[k][used[k]]
             used[k] += 1
             r[F] |= 1          # CY: bajt je celý (RL L vysunulo zarážku)

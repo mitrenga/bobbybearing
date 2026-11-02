@@ -1,7 +1,7 @@
 const { AbstractModel } = await import('./svision/js/abstractModel.js?ver='+window.srcVersion);
 const { BorderEntity } = await import('./borderEntity.js?ver='+window.srcVersion);
 const { ZXVideoRAMEntity } = await import('./svision/js/platform/canvas2D/zx/zxVideoRAMEntity.js?ver='+window.srcVersion);
-const { ZXVideoRAM } = await import('./svision/js/platform/canvas2D/zx/zxVideoRAM.js?ver='+window.srcVersion);
+const { AlkatrazLoader } = await import('./alkatrazLoader.js?ver='+window.srcVersion);
 const { TextEntity } = await import('./svision/js/platform/canvas2D/textEntity.js?ver='+window.srcVersion);
 const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?ver='+window.srcVersion);
 // begin code
@@ -12,18 +12,23 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  * each in its own timing, and the loading screen — the real one off the
  * original tape (data/loading.json, tools/matchloading.py).
  *
- * Every block is played as it is on the tape (audioManager.tapeBlockSound,
- * data/tape.json): the pilot, the sync pulses and the bytes it really
+ * Every block is played in its timing off the tape (audioManager.tapeBlockSound,
+ * data/tape.json): the pilot, the sync pulses and as many bytes as it really
  * carries. The sound says when the pilot is over and when the block is over,
  * and the loading lives off those events rather than off a timer.
  *
  * The picture is not revealed by a timer, it is **loaded**: the sound sends
- * an event after every byte of the picture and the model writes that byte
- * into the video memory. ★ The Alkatraz loader decrypts every byte on the fly
- * and puts the picture down **in an order of its own** — two cells side by
- * side, the attribute first, then the bitmap from the bottom line of the
- * cell up (sources/docs/tape_layout.md). data/loading.json has that order
- * and the decrypted bytes (tools/mkscreen.py out of bblib.memory_image).
+ * an event after every byte of the second turbo block and the model hands
+ * the byte to the conversion of the loader's second stage
+ * (alkatrazLoader.js), which puts it where the Alkatraz loader would — ★
+ * the loader generates the order of the screen addresses itself ($F983),
+ * cell by cell in a spiral from the middle, several cells interleaved; and
+ * **between the edges of every bit** its state machine ($F7AE) draws on
+ * rows 22-23: the running text `FROM THE EDGE ......` and the counter down
+ * to zero at the end of the block. All of it is the original's code over
+ * its own memory; data/loading.json carries only the 6714 bytes of the
+ * picture as they come off the tape and the 1.3 KB of the loader's memory
+ * the code reads (tools/traceloader.py, tools/matchtape.mjs).
  *
  * ★ **What the screen shows is measured** (tools/traceloading.py, the
  * simulated load, frame by frame):
@@ -37,17 +42,8 @@ const { ZXColor } = await import('./svision/js/platform/canvas2D/zx/zxColor.js?v
  *   routine flips the border on every edge, `AND $07 / OR $08` ($EDE5),
  *   in the ROM's colours (pilot cyan / red, data yellow / blue)
  * - the second one: ★ the border **solid blue** ($F7D1 `LD A,$01 / OR $08`),
- *   the picture coming up in the loader's order from 56.6 s
- *
- * ★ All through the second block the loader draws on rows 22-23 **between
- * the edges** ($F7AE, a state machine one step a bit): the running text
- * `FROM THE EDGE ......` and the counter, down to zero at the end of the
- * block. data/overlay.json (tools/traceoverlay.py) has the state of those
- * cells after every byte of the block where it changed, out of the
- * simulated load pulse for pulse; the last state is the screen the game
- * starts with. The states are deflated (175 KB instead of 3.5 MB) and
- * unpacked here with the browser's DecompressionStream; ? a browser without
- * it loads the tape without the running text and the counter.
+ *   the picture coming up in the loader's order from 56.6 s, the text and
+ *   the counter after the picture (byte 6718 of the block)
  *
  * ★ The tape (sources/docs/tape_layout.md): the ROM header `BOBBY`, the BASIC
  * with the Alkatraz loader in a REM, and two **turbo blocks** (pilot
@@ -79,11 +75,12 @@ export class TapeLoadingModel extends AbstractModel {
     this.tapePhase = false;
     this.tape = null;
     this.loading = null;
-    // what the loader draws in rows 22-23, by byte of the second block
-    // (unpackOverlay)
-    this.overlay = null;
-    // the picture as the loader leaves it (data/loading.json videoRAM)
-    this.pictureBytes = null;
+    // the loader's second stage over its memory (alkatrazLoader.js), made
+    // when the BASIC runs; the picture in tape order and the variables after
+    // it come inflated from data/loading.json (initData)
+    this.loader = null;
+    this.picture = null;
+    this.vars = null;
   } // constructor
 
   /**
@@ -133,15 +130,15 @@ export class TapeLoadingModel extends AbstractModel {
     this.programNameEntity.hide = true;
     this.desktopEntity.addEntity(this.programNameEntity);
 
-    // the tape, the picture and the loader's drawing: at once from
-    // localStorage, or from the server when they are missing there (R-062)
-    this.loadDataFiles(['tape', 'loading', 'overlay'], (files) => this.initData(files));
+    // the tape and the loader's data: at once from localStorage, or from
+    // the server when they are missing there (R-062)
+    this.loadDataFiles(['tape', 'loading'], (files) => this.initData(files));
   } // init
 
   /**
    * The part of init() that needs the data files. Runs inside init() when
    * they are in localStorage, later when they had to come from the server.
-   * @param {Object|null} files - tape, loading and overlay, or null.
+   * @param {Object|null} files - tape and loading, or null.
    */
   initData(files) {
     if (this.app.model !== this) {
@@ -150,10 +147,11 @@ export class TapeLoadingModel extends AbstractModel {
     files = files || {};
     var tape = files.tape;
     this.loading = files.loading;
-    this.unpackOverlay(files.overlay);
     // the tape's sound is rendered later, block by block (audioManager.js)
     if (this.app.audioManager) {
       this.app.audioManager.tapeData = tape;
+      this.app.audioManager.tapePicture = null;
+      this.app.audioManager.tapeVars = null;
     }
     if (!tape || !this.loading) {
       this.inputLineEntity.setText('TAPE DATA MISSING (data/tape.json)');
@@ -161,6 +159,7 @@ export class TapeLoadingModel extends AbstractModel {
       return;
     }
     this.tape = this.script(tape);
+    this.unpackLoading(this.loading);
 
     this.sendEvent(0, {id: 'openAudioBus', bus: 'sounds', options: {}});
     this.sendEvent(1000, {id: 'updateCommand'});
@@ -277,27 +276,22 @@ export class TapeLoadingModel extends AbstractModel {
 
       case 'tapeByte':
         // one byte of the second block (`at` is its number in the block): ★
-        // a byte of the picture goes where the loader puts it, decrypted
-        // (data/loading.json order and videoRAM), and what the loader drew in
-        // rows 22-23 by then follows (data/overlay.json); the entity repaints
-        // itself on the next frame
-        if (this.screenEntity && !this.tapeBreak) {
+        // the loader's conversion steps its state machine eight times (the
+        // text and the counter) and stores the byte where the loader would
+        // — a byte of the picture decrypted, from data/loading.json; what
+        // that wrote into the screen the entity repaints on the next frame
+        if (this.screenEntity && this.loader && !this.tapeBreak) {
           var n = event.data.at;
-          var picture = this.loading.pictureBytes;
-          if (this.loading.order && n >= picture[0] && n < picture[0]+picture[1]) {
-            var at = this.loading.order[n-picture[0]];
-            this.screenEntity.pokeOffset(at, this.pictureBytes[at]);
+          this.loader.loadByte(n, this.tapeByteValue(n));
+          var dirty = this.loader.dirty;
+          for (var i = 0; i < dirty.length; i++) {
+            this.screenEntity.pokeOffset(dirty[i], this.loader.mem[0x4000+dirty[i]]);
           }
-          this.drawOverlay(n);
+          dirty.length = 0;
         }
         return true;
 
       case 'tapeBlockEnd':
-        // ★ what the loader draws after the last byte of the second block
-        // (data/overlay.json keys it to the byte number one past the end)
-        if (this.screenEntity && !this.tapeBreak && event.data.block == 4) {
-          this.drawOverlay(event.data.bytes);
-        }
         var step = this.tapePhase === false ? null : this.tape[this.tapePhase];
         if (!this.tapeBreak && step && step.id == 'block' && step.block == event.data.block) {
           this.endStep();
@@ -323,7 +317,9 @@ export class TapeLoadingModel extends AbstractModel {
         this.screenEntity.clear(0, 0x00);
         this.screenEntity.invalidate();
         this.desktopEntity.addEntity(this.screenEntity);
-        this.pictureBytes = ZXVideoRAM.decode(this.loading.videoRAM);
+        // ★ the loader's second stage: its memory and the list of addresses
+        // it generates before the block ($F983)
+        this.loader = new AlkatrazLoader(this.loading.regions);
         var entities = this.desktopEntity.entities;
         entities.push(entities.splice(entities.indexOf(this.inputLineEntity), 1)[0]);
         this.inputLineEntity.setPenColor(ZXColor.white);
@@ -422,44 +418,46 @@ export class TapeLoadingModel extends AbstractModel {
   } // break
 
   /**
-   * Unpacks data/overlay.json: the states of the loader's cells, deflated.
+   * Inflates the picture of data/loading.json (6714 bytes in tape order,
+   * zlib) and reads the variables after it; both go to the sound too.
    * Asynchronous — the second block starts some fifty seconds in, long after
-   * this is done; until then (or without DecompressionStream) nothing is
-   * drawn there.
-   * @param {Object|null} data - data/overlay.json.
+   * this is done; ? a browser without DecompressionStream loads the tape
+   * without the picture, the loader then stores zeros.
+   * @param {Object} loading - data/loading.json.
    */
-  unpackOverlay(data) {
-    if (!data || !data.states || typeof DecompressionStream !== 'function') {
+  unpackLoading(loading) {
+    this.vars = AlkatrazLoader.hex(loading.vars || '');
+    if (this.app.audioManager) {
+      this.app.audioManager.tapeVars = this.vars;
+    }
+    if (!loading.picture || typeof DecompressionStream !== 'function') {
       return;
     }
-    var bin = atob(data.states);
-    var packed = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) {
-      packed[i] = bin.charCodeAt(i);
-    }
-    var stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('deflate'));
-    new Response(stream).arrayBuffer().then((buffer) => {
-      var index = {};
-      data.bytes.forEach((n, k) => { index[n] = k; });
-      this.overlay = {cells: data.cells, states: new Uint8Array(buffer), index: index};
+    AlkatrazLoader.inflate(loading.picture).then((bytes) => {
+      this.picture = bytes;
+      if (this.app.audioManager) {
+        this.app.audioManager.tapePicture = bytes;
+      }
     }).catch((error) => console.error(error.message));
-  } // unpackOverlay
+  } // unpackLoading
 
   /**
-   * ★ What the loader has drawn in rows 22-23 once byte `n` of the second
-   * block is in (n one past the last byte: the end of the block).
-   * @param {number} n - The byte number in the block.
+   * The value of byte `n` of the second block as the loader decrypts it:
+   * a byte of the picture or of the variables; the remake has no other.
+   * @param {number} n - The byte's number in the block.
+   * @returns {number}
    */
-  drawOverlay(n) {
-    if (!this.overlay || !(n in this.overlay.index)) {
-      return;
+  tapeByteValue(n) {
+    var picture = this.loading.pictureBytes;
+    if (this.picture && n >= picture[0] && n < picture[0]+picture[1]) {
+      return this.picture[n-picture[0]];
     }
-    var cells = this.overlay.cells, states = this.overlay.states;
-    var base = this.overlay.index[n]*cells.length;
-    for (var i = 0; i < cells.length; i++) {
-      this.screenEntity.pokeOffset(cells[i], states[base+i]);
+    var vars = picture[0]+picture[1];
+    if (this.vars && n >= vars && n < vars+this.vars.length) {
+      return this.vars[n-vars];
     }
-  } // drawOverlay
+    return 0;
+  } // tapeByteValue
 
   loopModel(timestamp) {
     super.loopModel(timestamp);

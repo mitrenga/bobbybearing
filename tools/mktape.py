@@ -16,14 +16,15 @@ které nese — tak, jak leží na pásce.
   od nejvyššího bitu, takže bajty jsou v paměti tak, jak leží na pásce;
   dešifruje je až kód (`bblib.memory_image()`)
 
-★ Oba turbo bloky se hrají celé. Blok 4 má 46 583 B, přes tři minuty
-pásky: kontrolu (2 B), obrázek (6714 B), proměnné a program — a po celou
-dobu zavaděč kreslí běžící text a odpočítává počítadlo do nuly
-(`data/overlay.json`, `tools/traceoverlay.py`). `eventBytes` říká, po
-kterých bajtech posílá zvuk událost `tapeByte` (u bloku 4 po každém),
-`pictureBytes`, které z nich jsou obrázek (pořadí adres v
-`data/loading.json`).
-
+★ Oba turbo bloky se hrají celé — ale **bajty nese jen hlavička** (19 B,
+jméno `BOBBY`): zbytek pásky je 52 KB programu a zavaděče, které remake
+nepotřebuje. Zvuk dat dělá `app/alkatrazLoader.js` `tapeBytes` ze
+seedovaného PRNG (R-009), obrázek a proměnné bloku 4 z `data/loading.json`;
+`durationMs` je přitom z bajtů kazety, jak zní. Blok 4 má 46 583 B, přes tři
+minuty pásky: kontrolu (2 B), obrázek (6714 B), proměnné (10 B) a program —
+po celou dobu zavaděč kreslí běžící text a počítadlo (`alkatrazLoader.js`).
+`eventBytes` říká, po kterých bajtech posílá zvuk událost `tapeByte`
+(u bloku 4 po každém), `pictureBytes`, které z nich jsou obrázek.
 ? **Pauzy** mezi bloky jsou vlastnost obalu TZX, ne kazety; remake se o ně
 opře jen řádově.
 """
@@ -36,7 +37,6 @@ import bblib as L                                                # noqa: E402
 ROM = {'pilot': 2168, 'sync': [667, 735], 'zero': 855, 'one': 1710}
 ROM_PILOT_PULSES = {0x00: 8063, 0xFF: 3223}   # podle flagu: hlavička / data
 PICTURE = [2, 6714]                           # ★ bajty obrázku v bloku 4
-TURBO_CUT = {3: None, 4: None}                # oba bloky celé
 
 
 def main():
@@ -55,17 +55,16 @@ def main():
             out.update({'kind': 'rom', 'pilot': ROM['pilot'],
                         'pilotPulses': ROM_PILOT_PULSES[blk['flag']],
                         'sync': ROM['sync'], 'zero': ROM['zero'], 'one': ROM['one']})
-            out['bytes'] = data.hex()
+            if blk['header']:
+                # ★ the only bytes the remake plays as they are: the ROM header
+                out['bytes'] = data.hex()
         else:
             t = blk['timing']
-            cut = TURBO_CUT[n]
             out.update({'kind': 'turbo', 'pilot': t['pilot'], 'pilotPulses': t['pilotPulses'],
-                        'sync': [t['sync1'], t['sync2']], 'zero': t['zero'], 'one': t['one'],
-                        'cut': cut is not None})
+                        'sync': [t['sync1'], t['sync2']], 'zero': t['zero'], 'one': t['one']})
             if n == 4:
                 out['pictureBytes'] = PICTURE
                 out['eventBytes'] = [0, len(data)]
-            out['bytes'] = (data if cut is None else data[:cut]).hex()
         if blk['header']:
             h = blk['header']
             out.update({'header': True, 'type': h['typeName'], 'name': h['name'],
@@ -76,14 +75,10 @@ def main():
             tstates = (out['pilot'] * out['pilotPulses'] + sum(out['sync'])
                        + 2 * (ones * out['one'] + (8 * len(payload) - ones) * out['zero']) + 945)
             return round(tstates / 3500)
-        out['tapeMs'] = sounds(data)
-        out['durationMs'] = sounds(bytes.fromhex(out['bytes']))
+        out['durationMs'] = sounds(data)
         blocks.append(out)
 
     result = {
-        'note': 'Scénář pro LOAD TAPE z kazety (tools/mktape.py): bloky v pořadí '
-                'kazety, časování a bajty, jak jdou po pásce (oba turbo bloky celé).',
-        'source': os.path.basename(L.TAPE),
         'blocks': blocks,
     }
     os.makedirs(os.path.dirname(os.path.abspath(args.dst)), exist_ok=True)
@@ -91,9 +86,10 @@ def main():
         json.dump(result, f, indent=1)
         f.write('\n')
     for b in blocks:
-        print('%d  %-5s %-10s %6d B  pilot %4d×%d T  %6d ms na pásce, zahraje se %6d ms  pauza %d ms'
+        print('%d  %-5s %-10s %6d B  pilot %4d×%d T  %6d ms  pauza %d ms%s'
               % (b['block'], b['kind'], (b.get('name') or '').strip() or '-', b['length'],
-                 b['pilotPulses'], b['pilot'], b['tapeMs'], b['durationMs'], b['pauseMs']))
+                 b['pilotPulses'], b['pilot'], b['durationMs'], b['pauseMs'],
+                 '  (bajty v datech)' if 'bytes' in b else ''))
     print('-> %s' % args.dst)
 
 

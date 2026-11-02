@@ -59,12 +59,12 @@ Tools (Python 3 and the SkoolKit checkout in `svision/sources/skoolkit`):
 | `tools/matchloading.py` | loading screen from the tape vs the archive `.scr` and the snapshot |
 | `tools/matchimage.py` | memory image without pulses vs the simulated load; memory at entry vs the RZX start snapshot and the independent in-game snapshot |
 | `tools/mkasm.py` | SkoolKit disassembly in `sources/asm/` from the control file; `--coverage` rebuilds the coverage map |
-| `tools/mkscreen.py` | `data/screen.json` (the opening screen as program bytes, the first room) and `data/loading.json` (the loading screen and its reveal order) |
-| `tools/mktape.py` | `data/tape.json`, the tape for LOAD TAPE |
+| `tools/mkscreen.py` | `data/screen.json` (the opening screen as program bytes, the menu's ball, the font) and `data/loading.json` (the loading screen in tape order and the loader's memory) |
+| `tools/mktape.py` | `data/tape.json`, the tape for LOAD TAPE: timing and lengths, the header's bytes |
 | `tools/traceloading.py` | frames of the screen during the simulated load |
-| `tools/traceoverlay.py` | `data/overlay.json`: what the loader draws (running text, counter) after which byte of the second turbo block |
+| `tools/traceloader.py` | `build/ref/loader.json`: the loader's second stage step by step (address generator, running text and counter after every bit) |
 | `tools/matchscreen.mjs` | the remake's opening screen and menu against the original's |
-| `tools/matchtape.mjs` | LOAD TAPE against the tape and the simulated load |
+| `tools/matchtape.mjs` | LOAD TAPE: `app/alkatrazLoader.js` against the loader's second stage step by step, the data against the tape |
 | `tools/runworker.mjs` | the worker's protocol and clock, without a browser |
 | `tools/measurecadence.py` | the original's mean pass (RZX) against the worker's `PASS_MS` |
 | `tools/playrzx.py` | replays the RZX recording of a whole game, saves RAM and frames, watches addresses, counts main-loop passes |

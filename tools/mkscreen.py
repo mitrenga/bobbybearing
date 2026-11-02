@@ -13,13 +13,16 @@ jsou bajty programu `$DA30`–`$E515` (zabalený obrázek), které rozbalí
 Herní obrazovku `screen.json` nenese: místnosti skládá worker z dat
 programu (`data/world.json`, `tools/dumpworld.py`, M2).
 
-`data/loading.json`: loading screen z kazety a **pořadí, v jakém ho
-zavaděč odkrývá** (★ blok 4, bajty 2–6715, `sources/docs/tape_layout.md`):
-`order` jsou offsety ve videopaměti po bajtech bloku, hodnota je bajt, jak
-ho zavaděč dešifruje, tj. bajt obrazovky na konci nahrávání
-(`bblib.memory_image()`). Každá adresa se zapíše jednou — nástroj to hlídá.
+`data/loading.json`: **loading screen, jak jde po pásce** (★ blok 4, bajty
+2–6715, `sources/docs/tape_layout.md`): `picture` je 6714 dešifrovaných
+bajtů v pořadí pásky (zlib, base64), `vars` 10 B proměnných za ním a
+`regions` paměť 2. stupně zavaděče, kterou čte převod `app/alkatrazLoader.js`
+(generátor adres `$F983` ze záznamů `$FB1F`, konec seznamu `$F6B1`, text,
+font a číslice `$FC37`–`$FFFF`, počítadlo `$F980`) — kam který bajt jde a co
+zavaděč mezitím kreslí, počítá remake kódem originálu, žádná tabulka
+(`tools/traceloader.py`, `tools/matchtape.mjs`).
 """
-import base64, json, os, sys
+import base64, json, os, sys, zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -35,6 +38,9 @@ FONT = 0xF70C           # ★ font hry: 8 B na znak podle kódu ASCII ($7315), m
 FONT_FIRST, FONT_END = 0x20, 0x5B
 PICTURE_FIRST = 2       # ★ první bajt obrázku v bloku 4
 PICTURE_END = 6716      # ★ za posledním bajtem obrázku
+VARS_END = 6726         # ★ za 10 B proměnných ($F6B7)
+# ★ paměť zavaděče, kterou generátor adres a automat textu čtou (tools/traceloader.py REGIONS)
+LOADER_REGIONS = [(0xF6B1, 0xF6C7), (0xF97F, 0xF983), (0xFB1B, 0xFC37), (0xFC37, 0x10000)]
 
 
 def title_reference():
@@ -67,10 +73,10 @@ def menu_bounce():
         for row in range(25):
             rows += bytes(mem[a + 32 * row:a + 32 * row + 4])
         sprites['%04X' % a] = b64(rows)
+    # buffer = $DA30 4x64 B za CALL $D8F5, sprites = $CDFB/$CDFF 4x25 B
+    # (krok 32), pos/vel = $D940/$D93F (LD BC,($D93F): C rychlost, B poloha),
+    # sprite = $D967, toggle = $DA0C (lichy = otocka s micem)
     return {
-        'note': 'Mic v O smycky menu ($D90A, $D941, $D9B6): buffer = $DA30 4x64 B za '
-                'CALL $D8F5, sprites = $CDFB/$CDFF 4x25 B (krok 32), pos/vel = $D940/$D93F (LD BC,($D93F): C rychlost, B poloha), '
-                'sprite = $D967, toggle = $DA0C (lichy = otocka s micem).',
         'buffer': b64(mem[BOUNCE_BUFFER:BOUNCE_BUFFER + 256]),
         'sprites': sprites,
         'pos': mem[0xD940], 'vel': mem[0xD93F],
@@ -79,35 +85,34 @@ def menu_bounce():
     }
 
 
-def reveal_order():
-    """Offsety videopaměti, kam jdou bajty obrázku v bloku 4, a obrazovka na
-    konci nahrávání."""
+def loader_data():
+    """★ Obrázek bloku 4 bajt po bajtu, jak ho zavaděč dešifruje a ukládá
+    (`$F737`), 10 B proměnných za ním a paměť 2. stupně ve chvíli prvního
+    bajtu bloku — z nahrání bez pulzů (`bblib.memory_image`, hook `on_read`)."""
     L.skoolkit_path()
-    from skoolkit.snapshot import Snapshot
-    from skoolkit.simulator import Simulator
-    from skoolkit.simutils import from_snapshot, PC, F, L as RL, IXh, IXl
-    sim = from_snapshot(Simulator, Snapshot.get(L.ATUSR_Z80))
-    r, mem = sim.registers, sim.memory
-    streams = [b['raw'] for b in L.turbo_blocks()]
-    used = [0, 0]
-    order = []
-    while r[PC] != L.ENTRY:
-        pc = r[PC]
-        if pc in L.SKIPS:
-            r[PC] = L.SKIPS[pc]
-            continue
-        if pc in L.READS:
-            k, ret = L.READS[pc]
-            if k == 1 and PICTURE_FIRST <= used[1] < PICTURE_END:
-                ix = (r[IXh] << 8) | r[IXl]
-                order.append(ix - 0x4000)
-            r[RL] = streams[k][used[k]]
-            used[k] += 1
-            r[F] |= 1
-            r[PC] = ret
-            continue
-        sim.run()
-    return order, bytes(mem[0x4000:0x5B00])
+    from skoolkit.simutils import IXh, IXl
+    picture, vars_, regions = bytearray(), bytearray(), {}
+    last = {}
+
+    def on_read(sim, k, i):
+        if k != 1:
+            return
+        r, m = sim.registers, sim.memory
+        if last:
+            j = last['i']
+            if PICTURE_FIRST <= j < PICTURE_END:
+                picture.append(m[last['ix']])
+            elif PICTURE_END <= j < VARS_END:
+                vars_.append(m[last['ix']])
+        last['ix'], last['i'] = (r[IXh] << 8) | r[IXl], i
+        if i == 0:
+            for a, b in LOADER_REGIONS:
+                regions['%04X' % a] = b64(m[a:b])
+
+    L.memory_image(on_read=on_read)
+    if len(picture) != PICTURE_END - PICTURE_FIRST or len(vars_) != VARS_END - PICTURE_END:
+        sys.exit('obrazek %d B, promenne %d B' % (len(picture), len(vars_)))
+    return bytes(picture), bytes(vars_), regions
 
 
 def b64(data):
@@ -122,10 +127,9 @@ def main():
     packed = entry[TITLE_DATA - 0x4000:TITLE_END - 0x4000]
     ref = title_reference()
     open(os.path.join(L.BUILD, 'ref', 'title.scr'), 'wb').write(ref)
+    # title = bajty programu $DA30-$E515, zabaleny obrazek, ktery rozbali $D9D8
+    # (app/screenComposer.js unpack); popis v data/README.md, do dat poznamky nejdou
     screen = {
-        'note': 'Obrazovky originalu (tools/mkscreen.py): title = bajty programu '
-                '$DA30-$E515, zabaleny obrazek, ktery rozbali $D9D8 '
-                '(app/screenComposer.js unpack). Mistnosti sklada worker z data/world.json.',
         'title': {'address': TITLE_DATA, 'length': len(packed), 'bytes': b64(packed)},
         'menu': menu_bounce(),
         # ★ the game's own font for the remake's menu (operator 2026-10-30):
@@ -136,26 +140,21 @@ def main():
     }
     json.dump(screen, open(os.path.join(data, 'screen.json'), 'w'), indent=1)
 
-    order, loaded = reveal_order()
-    if len(order) != len(set(order)):
-        sys.exit('zavadec zapisuje nekterou adresu obrazku dvakrat')
+    picture, vars_, regions = loader_data()
     loading = {
-        'note': 'Loading screen z kazety (tools/mkscreen.py): videoRAM = obrazovka na '
-                'konci nahravani (bblib.memory_image), order = offsety ve videopameti '
-                'po bajtech obrazku v bloku 4 (bajty %d-%d), v poradi odkryvani.'
-                % (PICTURE_FIRST, PICTURE_END - 1),
-        'name': 'LOADING SCREEN', 'width': 256, 'height': 192,
-        'videoRAM': b64(loaded),
+        'width': 256, 'height': 192,
         'pictureBytes': [PICTURE_FIRST, PICTURE_END - PICTURE_FIRST],
-        'order': order,
+        'picture': b64(zlib.compress(picture, 9)),
+        'vars': vars_.hex(),
+        'regions': regions,
     }
     json.dump(loading, open(os.path.join(data, 'loading.json'), 'w'))
     print('data/screen.json: title %d B z $%04X, menu (mic v O: buffer 256 B, 2 sprajty, '
           'stav %s), font %d znaku; build/ref/title.scr' % (len(packed), TITLE_DATA,
           {k: screen['menu'][k] for k in ('pos', 'vel', 'sprite', 'toggle')}, FONT_END - FONT_FIRST))
-    print('data/loading.json: %d B obrazku v poradi odkryvani, %d bajtu obrazovky '
-          'zavadec neplni' % (len(order), 6912 - len(order)))
-
+    print('data/loading.json: %d B obrazku v poradi pasky (zlib %d B), %d B promennych, '
+          'pamet zavadece %d B' % (len(picture), len(zlib.compress(picture, 9)), len(vars_),
+                                   sum((b - a) for a, b in LOADER_REGIONS)))
 
 if __name__ == '__main__':
     main()
