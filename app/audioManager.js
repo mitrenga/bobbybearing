@@ -91,7 +91,8 @@ export class AudioManager extends AbstractAudioManager {
    * - `tapeByte` after every byte of `eventBytes` (first byte and count;
    *   every byte of the second turbo block), with its number `at`: the
    *   loader's conversion takes it from there (AlkatrazLoader.loadByte),
-   * - `tapeBlockEnd` when the block is over — the tape moves on.
+   * - `tapeBlockEnd` when the sound is over — the tape moves on (the second
+   *   turbo block moves on by itself, on its last byte).
    *
    * @param {number} sampleRate
    * @param {number} level - Bus volume.
@@ -106,7 +107,11 @@ export class AudioManager extends AbstractAudioManager {
       return false;
     }
     var block = tape.blocks[number-1];
-    var bytes = AlkatrazLoader.tapeBytes(block, this.tapePicture, this.tapeVars);
+    // ★ the block the loader draws through ends when its last byte is in
+    // (tapeLoadingModel.js `tapeByte`), not when the sound runs out: the
+    // sound gets noise after it and is stopped from there
+    var bytes = AlkatrazLoader.tapeBytes(block, this.tapePicture, this.tapeVars,
+                                         block.eventBytes ? AlkatrazLoader.TAIL : 0);
     var options = {pilotEndEvent: 'tapePilotEnd', endEvent: 'tapeBlockEnd',
                    eventData: {block: number}};
     // the bytes that send `tapeByte`: first byte and count (data/tape.json
@@ -119,6 +124,30 @@ export class AudioManager extends AbstractAudioManager {
     }
     return ZXMachineSounds.tapeBlock(sampleRate, level, block, bytes, options);
   } // tapeBlockSound
+
+  /**
+   * How long a block of the tape plays, in ms, **as it sounds**: the pulse
+   * lengths rounded to whole samples at the context's sample rate
+   * (ZXMachineSounds.pulse rounds up — at 44.1 kHz a block plays some 10 %
+   * longer than the tape's `durationMs`; the second turbo block some 200 s
+   * instead of 183). The tape loading's fallback timer has to count with
+   * this, not with the tape's length (2026-11-02: a timer off the tape's
+   * length cut the block some 15 s early, the counter at 050).
+   * @param {number} number - The block, 1-4.
+   * @returns {number} Milliseconds, 0 without the data.
+   */
+  tapeBlockMs(number) {
+    var sampleRate = this.getSampleRate();
+    var audioData = this.tapeBlockSound(sampleRate, 1, number);
+    if (!audioData) {
+      return 0;
+    }
+    var samples = 0;
+    for (var i = 0; i < audioData.pulses.length; i++) {
+      samples += audioData.fragments[audioData.pulses[i]];
+    }
+    return Math.round(samples*1000/sampleRate);
+  } // tapeBlockMs
 
   createAudioHandler(bus, options) {
     var audioHandler = false;

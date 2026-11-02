@@ -90,14 +90,15 @@ export class TapeLoadingModel extends AbstractModel {
    * between them and what happens on the screen in between. The blocks come
    * out of data/tape.json, the pauses too — ? those are a property of the
    * TZX container rather than of the tape, so they are an order of
-   * magnitude, not measured numbers.
+   * magnitude, not measured numbers. A block lasts as long as its sound
+   * (nextStep), the second turbo block as long as its bytes take to load.
    * @param {Object} tape - data/tape.json.
    * @returns {Object[]} The steps.
    */
   script(tape) {
     var b = tape.blocks;
     var pause = (n) => ({id: 'pause', duration: b[n-1].pauseMs});
-    var block = (n, extra) => Object.assign({id: 'block', block: n, duration: b[n-1].durationMs}, extra || {});
+    var block = (n, extra) => Object.assign({id: 'block', block: n}, extra || {});
     return [
       {id: 'pause', duration: 1000},
       // the ROM loads the BASIC: header, then the program
@@ -200,9 +201,14 @@ export class TapeLoadingModel extends AbstractModel {
         this.sendEvent(0, {id: 'playSound', bus: 'sounds', sound: 'tapeBlock'+step.block, options: false});
         // ★ the second stage keeps the border solid blue (secondStage)
         this.sendEvent(0, {id: 'setBorderAnimation', value: step.block == 4 ? false : 'pilotTone'});
-        // the block ends itself with `tapeBlockEnd`; this only catches a bus
-        // that never got to play it
-        this.sendEvent(step.duration+2000, {id: 'updateTape', fallback: true});
+        // the block ends itself: with `tapeBlockEnd` from the sound, the
+        // second turbo block with its last byte in (`tapeByte`, the counter
+        // at 000); this only catches a bus that never got to play it. The
+        // length is the sound's own (audioManager.tapeBlockMs: the pulses
+        // rounded to samples play some 10 % longer than the tape's
+        // `durationMs`, and the second block has noise after it) — a timer
+        // off the tape's length cut the block 15 s early (2026-11-02)
+        this.sendEvent(this.app.audioManager.tapeBlockMs(step.block)+2000, {id: 'updateTape', fallback: true});
         return;
       case 'pause':
         this.breakable = true;
@@ -291,6 +297,13 @@ export class TapeLoadingModel extends AbstractModel {
             this.screenEntity.pokeOffset(dirty[i], this.loader.mem[0x4000+dirty[i]]);
           }
           dirty.length = 0;
+          // ★ the last byte is in, the counter at 000: the block is over
+          // here, whatever the sound (it has noise after the block and the
+          // next step stops it) — operator 2026-11-02
+          var step = this.tapePhase === false ? null : this.tape[this.tapePhase];
+          if (this.loader.done && step && step.id == 'block' && step.block == event.data.block) {
+            this.endStep();
+          }
         }
         return true;
 

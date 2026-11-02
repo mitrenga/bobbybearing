@@ -584,13 +584,17 @@ export class AlkatrazLoader {
    * the header as it is, the picture and the variables of the second turbo
    * block as the loader decrypts them, everything else from a seeded
    * xorshift32 — the sound of data, repeatable, not the program itself.
+   * `extra` bytes more go after the block's own: the sound of a block whose
+   * end the loader's conversion decides (the last byte in, the counter at
+   * 000) rather than the sound itself, so it plays on until it is stopped.
    * @param {Object} block - A block of data/tape.json.
    * @param {Uint8Array|null} picture - The 6714 bytes of the picture in tape order.
    * @param {Uint8Array|null} vars - The 10 bytes of variables after it.
-   * @returns {Uint8Array} `block.length` bytes.
+   * @param {number} [extra] - Bytes of noise after the block, 0 by default.
+   * @returns {Uint8Array} `block.length` (+ `extra`) bytes.
    */
-  static tapeBytes(block, picture, vars) {
-    var bytes = new Uint8Array(block.length);
+  static tapeBytes(block, picture, vars, extra) {
+    var bytes = new Uint8Array(block.length+(extra || 0));
     if (block.bytes) {
       bytes.set(AlkatrazLoader.hex(block.bytes).subarray(0, block.length));
       return bytes;
@@ -656,5 +660,7 @@ export class AlkatrazLoader {
 AlkatrazLoader.LIST = 0xC23D;
 /** the seed of the bytes that only sound (tapeBytes) */
 AlkatrazLoader.SEED = 0x1986;
+/** bytes of noise after the second turbo block, some 20 s: the loader stops the sound (tapeBytes) */
+AlkatrazLoader.TAIL = 5000;
 
 export default AlkatrazLoader;
