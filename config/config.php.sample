@@ -4,3 +4,9 @@
   $dbName = 'bobbybearing';
   $dbUser = 'your-user-name';
   $dbPassword = 'your-password';
+
+  // used by the statistics page (~/sw/stats), ignored by the game itself;
+  // the ranking must match db/hallOfFame.php
+  $gameName = 'Bobby Bearing';
+  $hallOfFameTable = 'rg_bb_hallOfFame';
+  $hallOfFameRank = ['brothers' => 'DESC', 'rooms' => 'DESC', 'time' => 'ASC'];
