@@ -54,20 +54,18 @@ def main():
     reads = set(json.load(open(READS))) - VARIABLES
     covered = set()
     regions = {}
-    for name, start, end, note in REGIONS:
+    for name, start, end, _note in REGIONS:
         covered.update(range(start, end + 1))
         regions[name] = {
             'address': start,
             'length': end - start + 1,
-            'note': note,
             'bytes': base64.b64encode(bytes(mem[start:end + 1])).decode('ascii'),
         }
     missing = sorted(reads - covered)
     if missing:
         raise SystemExit('cteni mimo useky: ' + ' '.join('$%04X' % a for a in missing[:20]))
+    # popis úseků: REGIONS výš a sources/docs/world.md; do dat poznámky nejdou
     data = {
-        'note': 'data místností z programu (tools/dumpworld.py), úseky paměti '
-                'originálu; popis v sources/docs/world.md',
         'rooms': 245,
         'regions': regions,
     }
