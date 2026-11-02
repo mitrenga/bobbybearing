@@ -48,7 +48,10 @@ export class AudioManager extends AbstractAudioManager {
   constructor(app) {
     super(app);
     this.id = 'AudioManager';
+    // the one slider, out of its cookie (the volume dialog writes it,
+    // VolumeControl.set); 5 the first time
     this.volume = {};
+    this.volume.sounds = Math.min(10, Math.max(0, Math.round(Number(Tool.readCookie('audioBusSoundsLevel', 5)))));
     // the game's effects the worker rendered for the model (setSample)
     this.samples = {};
     // data/tape.json from the tape loading (tapeLoadingModel.js), and the

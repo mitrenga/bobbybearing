@@ -221,11 +221,15 @@ export class MenuModel extends AbstractModel {
       // with no background of its own it hovers and clicks in the platform's
       // colours of a button on black (ZXPlatform), the black under it; its
       // right edge two pixels right of the cells, on the optical edge of the
-      // lettering BOBBY BEARING (operator 2026-10-31)
+      // lettering BOBBY BEARING (operator 2026-10-31); the button reaches
+      // ITEM_MARGINS beyond the lettering on every side, a bigger area to
+      // press (operator 2026-11-02): its right edge and its row are set so
+      // that the glyphs stand where they stood with a margin of one pixel
       var buttonColors = this.app.stack.ButtonEntity;
       this.itemColors = {hover: buttonColors.hoverColor[ZXColor.black], click: buttonColors.clickColor[ZXColor.black]};
-      this.itemEntity = new ButtonEntity(this.desktopEntity, this.app.fonts.zxFonts8x8Menu, 0, this.desktopHeight-8, this.desktopWidth-4*8+2, 8, '', {id: 'openBallItem'}, [], ZXColor.brightCyan, false,
-        {align: 'left', leftMargin: 1, hoverColor: this.itemColors.hover, clickColor: this.itemColors.click});
+      var margins = MenuModel.ITEM_MARGINS;
+      this.itemEntity = new ButtonEntity(this.desktopEntity, this.app.fonts.zxFonts8x8Menu, 0, this.desktopHeight-8-margins.top, this.desktopWidth-4*8+2+margins.right-1, 8+margins.top+margins.bottom, '', {id: 'openBallItem'}, [], ZXColor.brightCyan, false,
+        {align: 'left', leftMargin: margins.left, rightMargin: margins.right, topMargin: margins.top, bottomMargin: margins.bottom, hoverColor: this.itemColors.hover, clickColor: this.itemColors.click});
       this.desktopEntity.addEntity(this.itemEntity);
       this.showItem();
       // the version under BEARING, its right edge on the end of the lettering
@@ -321,7 +325,7 @@ export class MenuModel extends AbstractModel {
   /**
    * The value an item shows after its name: the player's name for PLAYER
    * NAME when there is one, the volume for SOUNDS (`audioBusSoundsLevel`,
-   * 0-10, as a percentage).
+   * 0-10, as the dialog words it: OFF, 10%..90%, MAX).
    * @param {Object} item - An entry of MenuModel.ITEMS.
    * @returns {string|boolean} The value, or false for none.
    */
@@ -330,7 +334,7 @@ export class MenuModel extends AbstractModel {
       case 'setPlayerName':
         return this.app.playerName.length ? this.app.playerName : false;
       case 'setSounds':
-        return this.app.audioManager ? this.app.audioManager.volume.sounds*10+'%' : false;
+        return this.app.audioManager ? ZXVolumeEntity.levelText(this.app.audioManager.volume.sounds) : false;
     }
     return false;
   } // itemValue
@@ -355,12 +359,12 @@ export class MenuModel extends AbstractModel {
       }
       text += value;
     }
-    // the button as wide as the text and a pixel on either side of it (the
-    // proportional font cuts the glyphs to their pixels; the hover colour
-    // shows them), its right edge where it stands: only a click on the name
-    // opens the item
+    // the button as wide as the text and its margins on either side of it
+    // (the proportional font cuts the glyphs to their pixels; the hover
+    // colour shows them), its right edge where it stands: only a click on
+    // the name opens the item
     var right = this.itemEntity.x+this.itemEntity.width;
-    this.itemEntity.width = text.length ? this.itemEntity.lineWidth(text)+2 : 1;
+    this.itemEntity.width = text.length ? this.itemEntity.lineWidth(text)+MenuModel.ITEM_MARGINS.left+MenuModel.ITEM_MARGINS.right : 1;
     this.itemEntity.x = right-this.itemEntity.width;
     this.itemEntity.hide = !text.length;
     // the hint (MenuModel.HINT) is plain text: no hover or click colours
@@ -409,12 +413,21 @@ export class MenuModel extends AbstractModel {
     if (!this.roomEntity || this.desktopEntity.modalEntity || !this.roomEntity.pointOnEntity(event)) {
       return false;
     }
+    // the point in the room's coordinates; in the dead zone around the
+    // item's button (MenuModel.DEAD_ZONE) the ball stays: a press meant for
+    // the button must not roll it (operator 2026-11-02)
+    var x = event.x-this.roomEntity.parentX-this.roomEntity.x;
+    var y = event.y-this.roomEntity.parentY-this.roomEntity.y;
+    var zone = MenuModel.DEAD_ZONE;
+    if (x >= zone.x && y+ScreenLayout.MENU_ROOM_ROW*8 >= zone.y) {
+      return true;
+    }
     this.ballMoved = true;
     this.showItem(this.ballItem || undefined);
     this.sendWorkerMessage({
       id: 'target',
-      x: event.x-this.roomEntity.parentX-this.roomEntity.x,
-      y: event.y-this.roomEntity.parentY-this.roomEntity.y+ScreenLayout.MENU_ROOM.row*8
+      x: x,
+      y: y+ScreenLayout.MENU_ROOM.row*8
     });
     return true;
   } // rollBallTo
@@ -665,6 +678,22 @@ export class MenuModel extends AbstractModel {
  * `$42`-`$47`, BobbyLogic.MENU_PATCH): the name shown while the ball is on
  * the disc and the event it opens. START GAME is the arrow.
  */
+/**
+ * The margins of the item's button (menu bottom right) around its lettering,
+ * in pixels: the area to press beyond the glyphs (operator 2026-11-02; none
+ * at the bottom, the button ends on the edge of the desktop).
+ */
+MenuModel.ITEM_MARGINS = {top: 4, left: 4, right: 4, bottom: 0};
+
+/**
+ * The dead zone around the item's button, in the desktop's pixels: from this
+ * corner to the bottom right corner of the desktop a click or a touch does
+ * not roll the ball (rollBallTo). Its top left corner stands clear of the
+ * room's drawing: the arrow ends at x 181 / y 146, the discs run down the
+ * left (x 89 at y 150); the size settled on screen (operator 2026-11-02).
+ */
+MenuModel.DEAD_ZONE = {x: 104, y: 162};
+
 MenuModel.ITEMS = [
   {label: 'PLAYER NAME', event: 'setPlayerName'},
   {label: 'HALL OF FAME', event: 'showHallOfFame'},
