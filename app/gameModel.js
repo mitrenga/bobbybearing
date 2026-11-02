@@ -67,15 +67,16 @@ export class GameModel extends AbstractModel {
   } // constructor
 
   /**
-   * The game's own border: no X in it (Escape and the pause panel do that),
-   * but on a touchscreen the two halves of the screen are the controls, so
-   * the border carries them and their icons (jetpac/app/gameModel.js).
+   * The game's own border: the X in its corner is Escape — the pause panel —
+   * as in manicminer, jetsetwilly and booty (operator 2026-11-02), and on a
+   * touchscreen the two halves of the screen are the controls, so the border
+   * carries them and their icons (jetpac/app/gameModel.js).
    * Without it the model gets the plain AbstractEntity of AbstractModel and
    * the touch halves are not there at all.
    * @returns {BorderEntity}
    */
   newBorderEntity() {
-    return new BorderEntity(false, this.app.controls.touchscreen.supported);
+    return new BorderEntity(true, this.app.controls.touchscreen.supported);
   } // newBorderEntity
 
   init() {
@@ -441,8 +442,9 @@ export class GameModel extends AbstractModel {
   } // controlAction
 
   /**
-   * What this half of the screen does (controlsOptions.touchscreen.halves):
-   * ★ both halves are a stick, the original has no fire.
+   * What this half of the screen does: a four-way stick or the CHEAT button
+   * (controlsOptions.touchscreen.halves). Which half is which is the
+   * left-handed / right-handed choice in SETTINGS.
    * @param {string} side - 'left' or 'right'.
    * @returns {Object} {icon, zones}
    */

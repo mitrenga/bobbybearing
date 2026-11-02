@@ -169,18 +169,28 @@ export class GameApp extends AbstractApp {
       // lesson of Underwurlde, where they were put off and left a hole (M5b),
       // confirmed by Sabre Wulf and Jetpac.
       //
-      // ★ The original has no fire, so **both halves of the screen are a
-      // stick**: whichever hand is free steers. There is one layout, and the
-      // left-handed / right-handed choice of SETTINGS has nothing to swap.
+      // ★ The original has no fire; its one button is `Q` CHEAT ($81EA). So
+      // one half of the screen is a **four-way stick** (the original reads
+      // its four direction bits at once, so the stick sends the diagonals
+      // too) and the other a **CHEAT button**. Which half is which is the
+      // left-handed / right-handed choice in SETTINGS, as in Sabre Wulf
+      // (operator 2026-11-02).
       touchscreen: {
         device: 'touchscreen',
         types: {
+          // ★ default is CHEAT on the left and the stick on the right; the
+          // first key is also the fallback for a broken cookie
           keys: [
-            'sticks'
+            'leftCheat',
+            'rightCheat'
           ],
-          sticks: {
-            left: {half: 'stick', sprite: 'stick'},
+          leftCheat: {
+            left: {half: 'cheat', sprite: 'cheat'},
             right: {half: 'stick', sprite: 'stick'}
+          },
+          rightCheat: {
+            left: {half: 'stick', sprite: 'stick'},
+            right: {half: 'cheat', sprite: 'cheat'}
           }
         },
         // What each half does. `rect` is a fraction of that half
@@ -195,6 +205,14 @@ export class GameApp extends AbstractApp {
               {rect: [0, 0, 1, 1], type: 'joystick', control: 'both',
                actions: {left: 'left', right: 'right', up: 'up', down: 'down'}}
             ]
+          },
+          // CHEAT is taken once a press (gameWorker.js cheatBlocked), so a
+          // tap is all it needs; the tap is held for the worker to see it
+          cheat: {
+            icon: 'cheat',
+            zones: [
+              {rect: [0, 0, 1, 1], type: 'button', action: 'cheat', tap: true}
+            ]
           }
         },
         // A short tap has to be seen by the game, which reads its controls
@@ -207,6 +225,13 @@ export class GameApp extends AbstractApp {
           // family (the same one the sibling remakes use)
           stick: {
             compressedSpriteData: 'lP101300N0E2P0111030Z051012320B0P020N0601234561718191AB9BCDB1BDCB9BA19181716543210'
+          },
+          cheat: {
+            // a button with rounded corners and CHEAT in the remake's 5x5
+            // font (fonts5x5.js glyphs), on the same 39x23 canvas as the
+            // stick glyph so both icons take the same room in the border
+            // (SpriteTool.encode lP1 of the readable grid)
+            compressedSpriteData: 'lP101300N095J0V0701050X04030201231343536353636733733687847363736373336373734363736437837373436373637333647343636733733633737343635363534313210'
           }
         }
       }
@@ -259,7 +284,7 @@ export class GameApp extends AbstractApp {
                   down: 'ArrowDown', cheat: 'Q', sounds: 'M'};
         break;
       case 'touchscreen':
-        result = {supported: false, type: 'sticks'};
+        result = {supported: false, type: 'leftCheat'};
         break;
       case 'gamepads':
         result = {supported: false, devices: {}};

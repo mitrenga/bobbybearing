@@ -78,7 +78,7 @@ export class MenuModel extends AbstractModel {
         // zxFonts8x8Menu, operator 2026-10-31); the default ZX keyboard
         // (194 px) fits the panel (222 px)
         inputFont: 'zxFonts8x8Menu',
-        keyboardButtonsBkColor: ZXColor.brightCyan
+        keyboardButtonsBkColor: ZXColor.brightYellow
       },
       // the remap dialog covers the contents of the SETTINGS panel
       // (framedDialogEntity.js, the geometry left false): no frame, black
