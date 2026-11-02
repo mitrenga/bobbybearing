@@ -67,10 +67,12 @@ export class TapeLoadingModel extends AbstractModel {
     // ★ the line BREAK reports while the ROM loads the BASIC: the command
     // typed directly, 0:1
     this.tapeBreakLine = '0:1';
-    // whether BREAK works at all right now. ★ Once the BASIC runs, the
-    // Alkatraz loader has the machine with DI and its own edge routines,
-    // which do not test BREAK; ? what a key does then is not measured, so the
-    // remake ignores BREAK from the BASIC on
+    // whether BREAK works right now. ★ While the ROM loads the header and
+    // the BASIC, SPACE is BREAK (the report, then the menu). Once the BASIC
+    // runs, the Alkatraz loader has the machine with DI and its own edge
+    // routines, which do not test any key — the remake differs there
+    // (operator 2026-11-02): SPACE, a touch or a click leaves SHOW TAPE
+    // LOADING at once, straight back to the menu
     this.breakable = true;
     this.tapePhase = false;
     this.tape = null;
@@ -170,8 +172,9 @@ export class TapeLoadingModel extends AbstractModel {
 
   newBorderEntity() {
     // no X in the border, like the other screens: a click or a touch anywhere
-    // in the border is BREAK (handleEvent), a second one goes back to the menu,
-    // and Escape or GamepadExit go back straight away
+    // in the border is BREAK (handleEvent) while the ROM loads, a second one
+    // goes back to the menu; from the BASIC on it goes back at once, and
+    // Escape or GamepadExit go back straight away always
     return new BorderEntity(false, false);
   } // newBorderEntity
 
@@ -305,7 +308,8 @@ export class TapeLoadingModel extends AbstractModel {
       case 'runBasic':
         // ★ USR $5D4C: the loader clears the screen at once ($EBB6, LDIR of
         // zeros from $4000) — a black screen and a black border; no BREAK
-        // from here on (the loader runs with DI and its own edge routines)
+        // from here on (the loader runs with DI and its own edge routines),
+        // a key, a touch or a click leaves for the menu instead (break)
         this.breakable = false;
         if (this.programNameEntity) {
           this.programNameEntity.destroy();
@@ -388,8 +392,8 @@ export class TapeLoadingModel extends AbstractModel {
 
   /**
    * Stops the load the way BREAK does on the real machine, or leaves when the
-   * tape is already stopped. During a turbo block BREAK does nothing, as in
-   * the original (`breakable`).
+   * tape is already stopped. From the BASIC on the original takes no key
+   * (`breakable`); the remake goes straight back to the menu instead.
    * @returns {boolean} True when the event was consumed.
    */
   break() {
@@ -400,6 +404,7 @@ export class TapeLoadingModel extends AbstractModel {
 
     if (this.tapePhase !== false) {
       if (!this.breakable) {
+        this.app.setModel('MenuModel');
         return true;
       }
       this.cancelEvent('updateTape');
