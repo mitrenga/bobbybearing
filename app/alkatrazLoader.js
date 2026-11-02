@@ -661,4 +661,3 @@ AlkatrazLoader.CHECK = 0x5B7C;
 /** ★ the bytes of variables after the picture ($F6B7) */
 AlkatrazLoader.VARS = 10;
 
-export default AlkatrazLoader;

@@ -62,4 +62,3 @@ export class GameScore {
 
 } // GameScore
 
-export default GameScore;
