@@ -523,7 +523,7 @@ function main() {
     check(!stopped, `test flight: hra se nezastavila (${stopped ? stopped.message : ''})`);
     check(last && last.pass === flight.passes && last.outcome === flight.outcome,
           `test flight: ${flight.passes} průchodů → ${flight.outcome} (je ${last && last.pass} → ${last && last.outcome})`);
-    // zrychlení: speed × víc průchodů za vteřinu, bez zvuku
+    // zrychlení: speed × víc průchodů za vteřinu, se zvukem
     const fast = [];
     const quick = startWorker((message) => fast.push(message));
     quick.send({id: 'init', initData: Object.assign({headless: false}, DATA, {flight: Object.assign({}, flight, {speed: 8})})});
@@ -531,7 +531,7 @@ function main() {
     sounds = fast.reduce((n, m) => n+((m.sounds || []).length), 0);
     check(Math.abs(fast[fast.length-1].pass-8*1000/TICK_MS) <= 8,
           `test flight se speed 8: ${Math.floor(8*1000/TICK_MS)} průchodů za vteřinu (je ${fast[fast.length-1].pass})`);
-    check(sounds === 0, `test flight se speed 8 je němý (zvuků ${sounds})`);
+    check(sounds > 0, `test flight se speed 8 hraje (zvuků ${sounds})`);
     // jako jetsetwilly: zrychlí se smyčka sama, ne dávky průchodů
     const next = quick.clock.timers.length ? quick.clock.timers[0].at-quick.clock.now : -1;
     check(next >= 0 && next <= TICK_MS/8, `test flight se speed 8: časovač po ${TICK_MS/8} ms (je ${next})`);

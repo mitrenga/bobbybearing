@@ -254,8 +254,7 @@ function frame(withScreen) {
     // $7CE5), 'lost' (home with one lost), 'timeout' ($7494), 'quit'
     outcome: state.outcome,
     controls: Object.assign({}, state.controls),
-    // a test flight played faster is silent
-    sounds: state.flight && state.flight.speed > 1 ? [] : state.sounds,
+    sounds: state.sounds,
     // M7: the remake's three numbers (score())
     score: Object.assign({}, state.score),
     // ★ the state of the generator of the brothers' order ($EE7F/$EE80):
