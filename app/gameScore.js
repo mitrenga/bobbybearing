@@ -14,7 +14,8 @@
  *   (a new room or a brother home), ranked up: the remake's own count of
  *   the ticks of the original's clock (`BobbyLogic.timeTicks`), eight to a
  *   unit of the panel's last digit, so the screens show `time / 8`
- *   rounded, five digits (a game can outrun the panel's four). `Q` CHEAT and the penalties cost ticks
+ *   rounded, without leading zeros (operator 2026-10-31), in a column five
+ *   figures wide (a game can outrun the panel's four). `Q` CHEAT and the penalties cost ticks
  *   on purpose; the 1000 a brother home gives the clock back is no tick.
  *
  * A game that got nowhere (no room, no brother) is shown but not stored
@@ -53,11 +54,11 @@ export class GameScore {
   /**
    * @param {Object} score - {brothers, rooms, time}
    * @returns {string} The time in the units of the panel's clock (eight
-   *   ticks each, rounded), five digits: a game can run past 9999 units,
-   *   since a brother home gives the clock time back.
+   *   ticks each, rounded), without leading zeros (operator 2026-10-31); it
+   *   can run past 9999 units, since a brother home gives the clock time back.
    */
   static time(score) {
-    return String(Math.round((score && score.time || 0)/8)).padStart(5, '0');
+    return String(Math.round((score && score.time || 0)/8));
   } // time
 
 } // GameScore

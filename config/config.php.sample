@@ -11,5 +11,5 @@
   $hallOfFameTable = 'rg_bb_hallOfFame';
   $hallOfFameRank = ['brothers' => 'DESC', 'rooms' => 'DESC', 'time' => 'ASC'];
   // the time is stored in ticks of the original's clock; the game shows it
-  // as round(ticks / 8), five digits (app/gameScore.js GameScore.time)
-  $hallOfFameFormat = ['time' => ['divide' => 8, 'pad' => 5]];
+  // as round(ticks / 8), no leading zeros (app/gameScore.js GameScore.time)
+  $hallOfFameFormat = ['time' => ['divide' => 8]];

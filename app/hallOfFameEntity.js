@@ -122,7 +122,7 @@ export class HallOfFameEntity extends FramedPanelEntity {
     var space = head('ROOMS TIME')-head('ROOMS')-head('TIME');
     var columns = [{head: 'BROTHERS', figures: 1, gap: GAP, get: (r) => String(r.brothers)},
                    {head: 'ROOMS', figures: 3, gap: space, get: (r) => String(r.rooms)},
-                   {head: 'TIME', figures: 5, gap: GAP, get: (r) => String(Number(GameScore.time(r)))}];   // without the leading zeros (operator 2026-10-31)
+                   {head: 'TIME', figures: 5, gap: GAP, get: (r) => GameScore.time(r)}];
     var right = w-MARGIN;
     for (var c = columns.length-1; c >= 0; c--) {
       columns[c].width = Math.max(head(columns[c].head), figuresWidth(columns[c].figures));

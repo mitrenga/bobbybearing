@@ -69,7 +69,7 @@ export class GameOverModel extends AbstractModel {
     // numbers flush right in a column of their own
     var rows = [['BROTHERS HOME', String(score.brothers)+' OF 5', ZXColor.brightWhite],
                 ['ROOMS SEEN', String(score.rooms), ZXColor.brightYellow],
-                ['TIME', String(Number(GameScore.time(score))), ZXColor.brightCyan]];   // without the leading zeros (operator 2026-10-31)
+                ['TIME', GameScore.time(score), ZXColor.brightCyan]];
     rows.forEach((row, i) => {
       var y = (firstRow+2*i)*8;
       this.desktopEntity.addEntity(new TextEntity(this.desktopEntity, this.app.fonts.zxFonts8x8Menu, 4*8, y, 14*8, 8, row[0], row[2], false, {}));
